@@ -1,6 +1,8 @@
-package server
+package agent
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -21,8 +23,8 @@ func TestRegistrableDomain(t *testing.T) {
 		{"", ""},
 	}
 	for _, tt := range tests {
-		if got := registrableDomain(tt.in); got != tt.want {
-			t.Errorf("registrableDomain(%q) = %q, want %q", tt.in, got, tt.want)
+		if got := RegistrableDomain(tt.in); got != tt.want {
+			t.Errorf("RegistrableDomain(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
 }
@@ -68,9 +70,66 @@ func TestRankVaults(t *testing.T) {
 	t.Run("does not mutate the input slice", func(t *testing.T) {
 		input := []store.Vault{c, a, b}
 		_ = rankVaults(input, []string{"kC"})
-		// input order should be unchanged.
 		if input[0].Key != "kC" || input[1].Key != "kA" || input[2].Key != "kB" {
 			t.Errorf("input mutated: %v", names(input))
+		}
+	})
+}
+
+// fakeHistory satisfies VaultHistory with a fixed map of (domain → keys).
+type fakeHistory struct {
+	keys map[string][]string
+	err  error
+}
+
+func (f fakeHistory) VaultKeysForDomain(_ context.Context, domain string) ([]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.keys[domain], nil
+}
+
+func TestHistoryScorer_Score(t *testing.T) {
+	a := store.Vault{Key: "kA", DisplayName: "Alpha"}
+	b := store.Vault{Key: "kB", DisplayName: "Beta"}
+	c := store.Vault{Key: "kC", DisplayName: "Charlie"}
+	all := []store.Vault{c, a, b}
+
+	t.Run("empty URL → alphabetical", func(t *testing.T) {
+		s := HistoryScorer{History: fakeHistory{}}
+		got := s.Score(context.Background(), Input{}, all)
+		want := []store.Vault{a, b, c}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", names(got), names(want))
+		}
+	})
+
+	t.Run("URL with history → history first", func(t *testing.T) {
+		s := HistoryScorer{History: fakeHistory{
+			keys: map[string][]string{"example.com": {"kC", "kA"}},
+		}}
+		got := s.Score(context.Background(), Input{URL: "https://example.com/article"}, all)
+		want := []store.Vault{c, a, b}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", names(got), names(want))
+		}
+	})
+
+	t.Run("history error → alphabetical, no panic", func(t *testing.T) {
+		s := HistoryScorer{History: fakeHistory{err: errors.New("DB on fire")}}
+		got := s.Score(context.Background(), Input{URL: "https://example.com/x"}, all)
+		want := []store.Vault{a, b, c}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", names(got), names(want))
+		}
+	})
+
+	t.Run("URL without registrable domain → alphabetical", func(t *testing.T) {
+		s := HistoryScorer{History: fakeHistory{}}
+		got := s.Score(context.Background(), Input{URL: "http://localhost:8080/"}, all)
+		want := []store.Vault{a, b, c}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", names(got), names(want))
 		}
 	})
 }

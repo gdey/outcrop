@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gdey/outcrop/agent"
 	"github.com/gdey/outcrop/clip"
 	"github.com/gdey/outcrop/store"
 	"github.com/gdey/outcrop/vault"
@@ -80,7 +81,7 @@ func (s *Server) handleClip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if domain := registrableDomain(req.URL); domain != "" {
+	if domain := agent.RegistrableDomain(req.URL); domain != "" {
 		if err := s.store.RecordClip(ctx, domain, v.Key, time.Now().UTC()); err != nil {
 			// History is best-effort; the clip is on disk.
 			s.log.Warn("record history", "err", err, "domain", domain)

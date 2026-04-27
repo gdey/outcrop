@@ -11,20 +11,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gdey/outcrop/agent"
 	"github.com/gdey/outcrop/store"
 )
 
 // Server holds the configuration and dependencies for the running HTTP
 // server. Instantiate with New and run with Serve.
 type Server struct {
-	store *store.Store
-	log   *slog.Logger
-	token string
-	addr  string
+	store  *store.Store
+	log    *slog.Logger
+	token  string
+	addr   string
+	scorer agent.Scorer
 }
 
 // New constructs a Server. The token must be non-empty; the address must
-// resolve to a loopback IP.
+// resolve to a loopback IP. The default Scorer is history-based per RFD 0003;
+// LLM-augmented scorers (RFD 0005) wrap it.
 func New(st *store.Store, log *slog.Logger, token, addr string) (*Server, error) {
 	if token == "" {
 		return nil, fmt.Errorf("token is empty")
@@ -32,7 +35,13 @@ func New(st *store.Store, log *slog.Logger, token, addr string) (*Server, error)
 	if err := validateLoopback(addr); err != nil {
 		return nil, err
 	}
-	return &Server{store: st, log: log, token: token, addr: addr}, nil
+	return &Server{
+		store:  st,
+		log:    log,
+		token:  token,
+		addr:   addr,
+		scorer: agent.HistoryScorer{History: st, Log: log},
+	}, nil
 }
 
 // Serve runs the HTTP server until ctx is cancelled or the listener fails.
