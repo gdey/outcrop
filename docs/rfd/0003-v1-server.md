@@ -6,7 +6,7 @@ created: 2026-04-26
 authors:
   - gdey
 tags: [design, server, go, http]
-related: [0001, 0004]
+related: [0001, 0004, 0005]
 superseded-by: ~
 ---
 
@@ -442,3 +442,5 @@ By step 5 the server is usable end-to-end against a hand-built request and can b
 
 - 2026-04-26 — Created as `discussion`.
 - 2026-04-27 — Implementation landed in commit `6600b45`. All seven build-order steps complete. Manual end-to-end validated by hand (`outcrop init` → `outcrop vault add` → `outcrop serve` → `curl POST /clip`). Test gaps closed: `cli/`, `server/clip.go`, and `server/health.go` now have direct unit tests; `go test ./...` is clean across all packages. Promoted to `committed`. Future server changes happen as new RFDs (or amendments to this one with explicit deltas), not as in-place rewrites — this document is now reference, not proposal.
+- 2026-04-27 — Schema amended by RFD 0005 (still `draft`): migration `00002_vault_description.sql` adds an optional `vault.description` column for the LLM prompt formatter. Backfills as empty string; pre-existing flows unaffected. The column is server-internal (not exposed via `GET /vaults`). See RFD 0005 §"Schema and vault descriptions" for the migration and CLI surface.
+- 2026-04-27 — Wire shape of `GET /vaults` amended by RFD 0005: the response was an array; it becomes `{vaults: [...], agent: {enabled: bool}}` so the popup can learn whether the agent is enabled in a single trip. Breaking change for consumers, but the Firefox extension is the only one and ships in lock-step. The richer agent status — capabilities, version, local-vs-remote — is reserved for the future `GET /agent/status` endpoint scoped to RFD 0006 (`ideation`).

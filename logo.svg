@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Background -->
+  <rect width="512" height="512" fill="#eaf3f2"/>
+
+  <!-- Outer ring -->
+  <circle cx="256" cy="256" r="228" stroke="#1d6e72" stroke-width="22" fill="none"/>
+
+  <!-- Inner ring -->
+  <circle cx="256" cy="256" r="180" stroke="#1d6e72" stroke-width="22" fill="none"/>
+
+  <!-- Bars between rings (top and bottom) -->
+  <g stroke="#1d6e72" stroke-width="22" stroke-linecap="butt">
+    <line x1="256" y1="39"  x2="256" y2="65"/>
+    <line x1="256" y1="447" x2="256" y2="473"/>
+  </g>
+
+  <!-- Window outline (corners on the inner circle, r=180) -->
+  <rect x="112" y="148" width="288" height="216"
+        stroke="#1d6e72" stroke-width="14" fill="none"/>
+
+  <!-- Filled title bar -->
+  <rect x="119" y="155" width="274" height="38" fill="#1d6e72"/>
+
+  <!-- Outcropping silhouette, centered, base just above window bottom -->
+  <path d="M 146 345
+           L 168 300
+           L 192 318
+           L 218 248
+           L 240 282
+           L 256 214
+           L 280 268
+           L 304 240
+           L 326 290
+           L 348 268
+           L 366 345 Z"
+        fill="#1d6e72"/>
+
+  <!-- Dashed selection box: top-right corner at window top-right corner -->
+  <rect x="280" y="148" width="120" height="120"
+        fill="#ffffff" stroke="#1d6e72" stroke-width="10"
+        stroke-dasharray="14 10"/>
+</svg>

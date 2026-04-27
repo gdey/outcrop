@@ -6,7 +6,7 @@ created: 2026-04-27
 authors:
   - gdey
 tags: [design, firefox-extension, mv3, typescript]
-related: [0001, 0002, 0003]
+related: [0001, 0002, 0003, 0005, 0006]
 superseded-by: ~
 ---
 
