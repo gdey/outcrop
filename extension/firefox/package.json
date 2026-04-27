@@ -1,0 +1,22 @@
+{
+  "name": "outcrop-firefox",
+  "version": "0.1.0",
+  "description": "Outcrop Firefox extension — clip a region of a webpage into an Obsidian vault.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "node esbuild.config.mjs && node scripts/copy-static.mjs",
+    "dev": "node esbuild.config.mjs --watch & web-ext run --source-dir=dist",
+    "package": "npm run check && npm run build && web-ext build --source-dir=dist --artifacts-dir=dist-artifacts --overwrite-dest"
+  },
+  "devDependencies": {
+    "@types/firefox-webext-browser": "^120.0.4",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0",
+    "web-ext": "^8.3.0"
+  }
+}
