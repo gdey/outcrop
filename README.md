@@ -35,7 +35,14 @@ Prerequisites: Go (see `go.mod` for the directive).
 ```sh
 go build ./cmd/outcrop
 ./outcrop init                                # writes config DB, prints a token
-./outcrop vault add Personal /path/to/Vault   # register an Obsidian vault directory
+
+# Register an Obsidian vault. A description is strongly recommended if you
+# plan to use the LLM router (RFD 0005) — vaults without one are at a
+# routing disadvantage versus vaults that have one.
+./outcrop vault add \
+    --description "life admin, journaling, news, things to remember" \
+    Personal /path/to/Vault
+
 ./outcrop serve                               # listens on 127.0.0.1:7878
 ```
 

@@ -36,7 +36,7 @@ func TestRankVaults(t *testing.T) {
 	all := []store.Vault{c, a, b} // intentionally out of order
 
 	t.Run("no history → alphabetical", func(t *testing.T) {
-		got := rankVaults(all, nil)
+		got := rankVaults(all, nil, "")
 		want := []store.Vault{a, b, c}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("got %v, want %v", names(got), names(want))
@@ -44,7 +44,7 @@ func TestRankVaults(t *testing.T) {
 	})
 
 	t.Run("history orders the head", func(t *testing.T) {
-		got := rankVaults(all, []string{"kC", "kA"})
+		got := rankVaults(all, []string{"kC", "kA"}, "")
 		want := []store.Vault{c, a, b}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("got %v, want %v", names(got), names(want))
@@ -52,7 +52,7 @@ func TestRankVaults(t *testing.T) {
 	})
 
 	t.Run("history with unknown keys is skipped", func(t *testing.T) {
-		got := rankVaults(all, []string{"k-deleted", "kB"})
+		got := rankVaults(all, []string{"k-deleted", "kB"}, "")
 		want := []store.Vault{b, a, c}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("got %v, want %v", names(got), names(want))
@@ -60,7 +60,7 @@ func TestRankVaults(t *testing.T) {
 	})
 
 	t.Run("history with duplicates dedups", func(t *testing.T) {
-		got := rankVaults(all, []string{"kA", "kA", "kB"})
+		got := rankVaults(all, []string{"kA", "kA", "kB"}, "")
 		want := []store.Vault{a, b, c}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("got %v, want %v", names(got), names(want))
@@ -69,9 +69,34 @@ func TestRankVaults(t *testing.T) {
 
 	t.Run("does not mutate the input slice", func(t *testing.T) {
 		input := []store.Vault{c, a, b}
-		_ = rankVaults(input, []string{"kC"})
+		_ = rankVaults(input, []string{"kC"}, "")
 		if input[0].Key != "kC" || input[1].Key != "kA" || input[2].Key != "kB" {
 			t.Errorf("input mutated: %v", names(input))
+		}
+	})
+
+	t.Run("no history, default set → default first", func(t *testing.T) {
+		got := rankVaults(all, nil, "kC")
+		want := []store.Vault{c, a, b}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", names(got), names(want))
+		}
+	})
+
+	t.Run("history wins over default", func(t *testing.T) {
+		// History says kA, default says kC. History should lead.
+		got := rankVaults(all, []string{"kA"}, "kC")
+		want := []store.Vault{a, b, c}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", names(got), names(want))
+		}
+	})
+
+	t.Run("unknown defaultKey is ignored", func(t *testing.T) {
+		got := rankVaults(all, nil, "k-deleted")
+		want := []store.Vault{a, b, c}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", names(got), names(want))
 		}
 	})
 }
@@ -127,6 +152,26 @@ func TestHistoryScorer_Score(t *testing.T) {
 	t.Run("URL without registrable domain → alphabetical", func(t *testing.T) {
 		s := HistoryScorer{History: fakeHistory{}}
 		got := s.Score(context.Background(), Input{URL: "http://localhost:8080/"}, all)
+		want := []store.Vault{a, b, c}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", names(got), names(want))
+		}
+	})
+
+	t.Run("no history, default set → default first", func(t *testing.T) {
+		s := HistoryScorer{History: fakeHistory{}}
+		got := s.Score(context.Background(), Input{URL: "https://x", DefaultKey: "kC"}, all)
+		want := []store.Vault{c, a, b}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", names(got), names(want))
+		}
+	})
+
+	t.Run("history wins over default", func(t *testing.T) {
+		s := HistoryScorer{History: fakeHistory{
+			keys: map[string][]string{"example.com": {"kA"}},
+		}}
+		got := s.Score(context.Background(), Input{URL: "https://example.com/x", DefaultKey: "kC"}, all)
 		want := []store.Vault{a, b, c}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("got %v, want %v", names(got), names(want))

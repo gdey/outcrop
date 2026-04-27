@@ -125,6 +125,39 @@ func TestCmdInit_ForceRotatesToken(t *testing.T) {
 	}
 }
 
+func TestVaultAdd_WarnsWhenDescriptionEmpty(t *testing.T) {
+	initForTest(t)
+	d := t.TempDir()
+
+	out, err := captureStdout(t, func() error { return CmdVault([]string{"add", "Personal", d}) })
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	for _, want := range []string{"no description", "outcrop vault describe"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing warning text %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestVaultAdd_NoWarnWhenDescribed(t *testing.T) {
+	initForTest(t)
+	d := t.TempDir()
+
+	out, err := captureStdout(t, func() error {
+		return CmdVault([]string{"add", "--description", "life admin, journaling", "Personal", d})
+	})
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if strings.Contains(out, "no description") {
+		t.Errorf("warning text should not appear when --description is set:\n%s", out)
+	}
+	if !strings.Contains(out, "desc: life admin, journaling") {
+		t.Errorf("description not echoed back in:\n%s", out)
+	}
+}
+
 func TestVaultAdd_BecomesDefaultIfFirst(t *testing.T) {
 	dbPath := initForTest(t)
 	d := t.TempDir()

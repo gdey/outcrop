@@ -20,6 +20,8 @@ Capture each clip as a training example: the page (URL + title + selected text),
 
 A generic small chat model picks vaults reasonably from URL + title but plateaus quickly: it doesn't know that this particular user routes most ML papers to "Reading List" and only puts Anthropic / OpenAI / DeepMind papers in "Work Notes." That distinction is in the user's head and in their *behaviour*. Every clip the user actually saves is implicit feedback — the gap between "what would the model have picked" and "what did they pick" is supervised training data.
 
+RFD 0005's step-5 smoke testing sharpens what fine-tuning is actually *for*. With real vault descriptions, a 3B-class chat model routes correctly on most generic cases out of the box. The win from fine-tuning isn't about making a too-small model competent — that bar is already cleared by good descriptions plus the §"Schema and vault descriptions" prompt format. Fine-tuning's job is to teach the user's idiosyncratic mappings *on top of* an already-working baseline: "Show HN posts go to Reading List even when the description doesn't mention HN," "Anthropic papers go to Work Notes specifically," "anything from this one blog domain always goes to Personal." The model only has to learn *deltas* from a working default, which is exactly the kind of target a small, user-specific dataset is good at hitting.
+
 Capturing that gap is cheap (one small DB row per clip). Acting on it is downstream — an external fine-tune run that produces a new GGUF the user points outcrop at via `outcrop agent enable --model ...`. **This RFD is the *capture* surface only.** Fine-tuning itself is a separate toolchain and out of scope here.
 
 ## Constraints already agreed
@@ -94,3 +96,4 @@ The training table holds sensitive fields: URLs, titles, notes typed by the user
 ## Status notes
 
 - 2026-04-27 — Created as `ideation`. Spawned by the observation that the agent's accept/override behaviour is implicit training data worth capturing while RFD 0005 ships. Move to `draft` once RFD 0005 is in users' hands and the capture surface is concrete enough to design against real Suggester / Refiner outputs.
+- 2026-04-27 — Motivation refined based on RFD 0005 step-5 smoke-testing findings: a 3B model with real descriptions already routes well; this RFD's value lands in capturing user-specific *deltas* from the working default, not in compensating for too-small a model. Implication for design: dataset *quality* (correct user-picked vault, accurate "what was suggested") matters more than dataset *size*, since the model has a competent baseline to start from. See RFD 0005 §Status notes for the underlying observation.

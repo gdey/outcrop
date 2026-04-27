@@ -20,7 +20,7 @@ import (
 // CmdVault implements `outcrop vault <subcommand>`.
 func CmdVault(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: outcrop vault <add|list|rename|remove|default> ...")
+		return fmt.Errorf("usage: outcrop vault <add|list|rename|describe|show|remove|default> ...")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -30,6 +30,10 @@ func CmdVault(args []string) error {
 		return cmdVaultList(rest)
 	case "rename":
 		return cmdVaultRename(rest)
+	case "describe":
+		return cmdVaultDescribe(rest)
+	case "show":
+		return cmdVaultShow(rest)
 	case "remove":
 		return cmdVaultRemove(rest)
 	case "default":
@@ -42,11 +46,12 @@ func CmdVault(args []string) error {
 func cmdVaultAdd(args []string) error {
 	fs := flag.NewFlagSet("vault add", flag.ContinueOnError)
 	makeDefault := fs.Bool("default", false, "set this vault as the default")
+	description := fs.String("description", "", "free-form description; strongly recommended if you plan to use the LLM router — vaults without a description effectively can't win against described vaults in routing decisions (RFD 0005)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 2 {
-		return fmt.Errorf("usage: outcrop vault add [--default] <displayName> <path>")
+		return fmt.Errorf("usage: outcrop vault add [--default] [--description \"…\"] <displayName> <path>")
 	}
 	displayName := fs.Arg(0)
 	rawPath := fs.Arg(1)
@@ -71,6 +76,7 @@ func cmdVaultAdd(args []string) error {
 	v := store.Vault{
 		Key:         key,
 		DisplayName: displayName,
+		Description: *description,
 		Path:        abs,
 	}
 	if err := st.CreateVault(ctx, v); err != nil {
@@ -96,8 +102,18 @@ func cmdVaultAdd(args []string) error {
 	}
 
 	fmt.Fprintf(os.Stdout, "Added vault\n  key:  %s\n  name: %s\n  path: %s\n", key, displayName, abs)
+	if *description != "" {
+		fmt.Fprintf(os.Stdout, "  desc: %s\n", *description)
+	}
 	if *makeDefault {
 		fmt.Fprintf(os.Stdout, "  (default)\n")
+	}
+	if *description == "" {
+		fmt.Fprintln(os.Stdout)
+		fmt.Fprintln(os.Stdout, "Tip: this vault has no description. The LLM router (when enabled) picks")
+		fmt.Fprintln(os.Stdout, "the right vault more reliably when each vault has one — vaults without a")
+		fmt.Fprintln(os.Stdout, "description effectively can't win against described vaults. Add one with:")
+		fmt.Fprintf(os.Stdout, "  outcrop vault describe %s \"…\"\n", key)
 	}
 	return nil
 }
@@ -129,14 +145,32 @@ func cmdVaultList(args []string) error {
 		return nil
 	}
 
+	// Show description column only if at least one vault has one — keeps the
+	// table narrow for users who don't bother with descriptions.
+	anyDescription := false
+	for _, v := range vaults {
+		if v.Description != "" {
+			anyDescription = true
+			break
+		}
+	}
+
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "KEY\tNAME\tDEFAULT\tPATH")
+	if anyDescription {
+		fmt.Fprintln(tw, "KEY\tNAME\tDEFAULT\tDESCRIPTION\tPATH")
+	} else {
+		fmt.Fprintln(tw, "KEY\tNAME\tDEFAULT\tPATH")
+	}
 	for _, v := range vaults {
 		flag := ""
 		if v.Key == defaultKey {
 			flag = "*"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", v.Key, v.DisplayName, flag, v.Path)
+		if anyDescription {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", v.Key, v.DisplayName, flag, truncate(v.Description, 40), v.Path)
+		} else {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", v.Key, v.DisplayName, flag, v.Path)
+		}
 	}
 	return tw.Flush()
 }
@@ -161,6 +195,77 @@ func cmdVaultRename(args []string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stdout, "Renamed.\n")
+	return nil
+}
+
+func cmdVaultDescribe(args []string) error {
+	fs := flag.NewFlagSet("vault describe", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return fmt.Errorf("usage: outcrop vault describe <key> \"<description>\" (use \"\" to clear)")
+	}
+	st, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if err := st.DescribeVault(context.Background(), fs.Arg(0), fs.Arg(1)); err != nil {
+		if errors.Is(err, store.ErrVaultNotFound) {
+			return fmt.Errorf("no vault with key %q", fs.Arg(0))
+		}
+		return err
+	}
+	if fs.Arg(1) == "" {
+		fmt.Fprintln(os.Stdout, "Description cleared.")
+	} else {
+		fmt.Fprintln(os.Stdout, "Description set.")
+	}
+	return nil
+}
+
+func cmdVaultShow(args []string) error {
+	fs := flag.NewFlagSet("vault show", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("usage: outcrop vault show <key>")
+	}
+	st, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	v, err := st.GetVault(ctx, fs.Arg(0))
+	if err != nil {
+		if errors.Is(err, store.ErrVaultNotFound) {
+			return fmt.Errorf("no vault with key %q", fs.Arg(0))
+		}
+		return err
+	}
+	defaultKey, err := st.Meta(ctx, store.MetaDefaultVaultKey)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stdout, "Key:         %s\n", v.Key)
+	fmt.Fprintf(os.Stdout, "Name:        %s\n", v.DisplayName)
+	if v.Description == "" {
+		fmt.Fprintf(os.Stdout, "Description: (unset)\n")
+	} else {
+		fmt.Fprintf(os.Stdout, "Description: %s\n", v.Description)
+	}
+	fmt.Fprintf(os.Stdout, "Path:        %s\n", v.Path)
+	fmt.Fprintf(os.Stdout, "Clippings:   %s\n", v.ClippingPath)
+	fmt.Fprintf(os.Stdout, "Attachments: %s\n", v.AttachmentPath)
+	fmt.Fprintf(os.Stdout, "Created:     %s\n", v.CreatedAt.Format(time.RFC3339))
+	if v.Key == defaultKey {
+		fmt.Fprintf(os.Stdout, "Default:     yes\n")
+	}
 	return nil
 }
 
@@ -274,4 +379,14 @@ func openStore() (*store.Store, error) {
 		return nil, fmt.Errorf("no config at %s; run `outcrop init` first", dbPath)
 	}
 	return store.Open(dbPath)
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	if n <= 1 {
+		return "…"
+	}
+	return s[:n-1] + "…"
 }

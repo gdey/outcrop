@@ -12,6 +12,15 @@ const (
 	MetaToken           = "token"
 	MetaListenAddr      = "listen_addr"
 	MetaDefaultVaultKey = "default_vault_key"
+
+	// Agent (RFD 0005).
+	MetaAgentEnabled   = "agent_enabled"    // "true" / "false"
+	MetaAgentBackend   = "agent_backend"    // "kronk" or "http"
+	MetaAgentModelPath = "agent_model_path" // absolute path to GGUF (kronk only)
+	MetaAgentEndpoint  = "agent_endpoint"   // OpenAI-compatible base URL (http only)
+	MetaAgentModel     = "agent_model"      // model name on the endpoint (http only)
+	MetaAgentAPIKey    = "agent_api_key"    // optional bearer (http only)
+	MetaAgentTimeoutMs = "agent_timeout_ms" // integer milliseconds
 )
 
 // Meta returns the value of a singleton config key, or "" with no error if the

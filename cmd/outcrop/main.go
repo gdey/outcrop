@@ -33,6 +33,8 @@ func run(args []string) error {
 		return cli.CmdVault(rest)
 	case "config":
 		return cli.CmdConfig(rest)
+	case "agent":
+		return cli.CmdAgent(rest)
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -47,11 +49,20 @@ func printUsage() {
 Usage:
   outcrop init [--force]
   outcrop serve [--addr 127.0.0.1:7878] [--log-format text|json]
-  outcrop vault add [--default] <displayName> <path>
+
+  outcrop vault add [--default] [--description "…"] <displayName> <path>
   outcrop vault list
+  outcrop vault show <key>
   outcrop vault rename <key> <newName>
+  outcrop vault describe <key> "<description>"
   outcrop vault remove <key>
   outcrop vault default <key>
+
+  outcrop agent enable [--backend http|kronk] --model NAME [--endpoint URL] [--api-key KEY] [--timeout MS]
+  outcrop agent disable
+  outcrop agent status
+  outcrop agent test <url> [<title>]
+
   outcrop config show [--show-token]
   outcrop config path
   outcrop help`)

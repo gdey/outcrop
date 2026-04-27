@@ -26,7 +26,10 @@ type HistoryScorer struct {
 
 // Score ranks the vault list for in.URL by looking up most-recently-used vault
 // keys for the registrable domain. Empty URL or unrecognisable domain falls
-// through to alphabetical by display name.
+// through to alphabetical by display name. When there's no history hit, the
+// configured default vault (in.DefaultKey) is promoted to the head — without
+// this the popup pill would land on the alphabetical-first vault, ignoring
+// the user's "if you don't know, put it here" preference.
 func (h HistoryScorer) Score(ctx context.Context, in Input, vaults []store.Vault) []store.Vault {
 	var historyKeys []string
 	if in.URL != "" {
@@ -41,7 +44,7 @@ func (h HistoryScorer) Score(ctx context.Context, in Input, vaults []store.Vault
 			}
 		}
 	}
-	return rankVaults(vaults, historyKeys)
+	return rankVaults(vaults, historyKeys, in.DefaultKey)
 }
 
 // rankVaults merges the alphabetical vault list with a most-recently-used key
@@ -49,15 +52,19 @@ func (h HistoryScorer) Score(ctx context.Context, in Input, vaults []store.Vault
 // remaining vaults follow alphabetically by display name. Unknown keys in
 // historyKeys (e.g., for vaults that were deleted) are silently skipped.
 //
+// When historyKeys is empty AND defaultKey names a vault in the list, the
+// default vault is promoted to the head. History always wins over default
+// when both apply — the user's behaviour beats the user's hint.
+//
 // Pure function: no IO, easy to test.
-func rankVaults(vaults []store.Vault, historyKeys []string) []store.Vault {
+func rankVaults(vaults []store.Vault, historyKeys []string, defaultKey string) []store.Vault {
 	out := append([]store.Vault(nil), vaults...)
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].DisplayName < out[j].DisplayName
 	})
 
 	if len(historyKeys) == 0 {
-		return out
+		return promoteByKey(out, defaultKey)
 	}
 
 	byKey := make(map[string]store.Vault, len(out))
@@ -81,6 +88,25 @@ func rankVaults(vaults []store.Vault, historyKeys []string) []store.Vault {
 		}
 	}
 	return ranked
+}
+
+// promoteByKey moves the vault with the matching key to the head of the
+// slice. Empty key or unknown key → input order is preserved. Returns a new
+// slice; the input is not mutated.
+func promoteByKey(vaults []store.Vault, key string) []store.Vault {
+	if key == "" {
+		return vaults
+	}
+	for i, v := range vaults {
+		if v.Key == key {
+			out := make([]store.Vault, 0, len(vaults))
+			out = append(out, v)
+			out = append(out, vaults[:i]...)
+			out = append(out, vaults[i+1:]...)
+			return out
+		}
+	}
+	return vaults
 }
 
 // RegistrableDomain returns the eTLD+1 for the given URL, or "" if the URL is

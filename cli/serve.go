@@ -50,7 +50,9 @@ func CmdServe(args []string) error {
 		}
 	}
 
-	srv, err := server.New(st, log, token, addr)
+	scorer := buildScorer(ctx, st, log)
+
+	srv, err := server.New(st, log, token, addr, scorer)
 	if err != nil {
 		return err
 	}

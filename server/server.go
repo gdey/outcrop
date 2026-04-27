@@ -26,21 +26,25 @@ type Server struct {
 }
 
 // New constructs a Server. The token must be non-empty; the address must
-// resolve to a loopback IP. The default Scorer is history-based per RFD 0003;
-// LLM-augmented scorers (RFD 0005) wrap it.
-func New(st *store.Store, log *slog.Logger, token, addr string) (*Server, error) {
+// resolve to a loopback IP. If scorer is nil, a default history-based scorer
+// is constructed (RFD 0003 behaviour). LLM-augmented scorers (RFD 0005) are
+// built by the CLI and passed in here.
+func New(st *store.Store, log *slog.Logger, token, addr string, scorer agent.Scorer) (*Server, error) {
 	if token == "" {
 		return nil, fmt.Errorf("token is empty")
 	}
 	if err := validateLoopback(addr); err != nil {
 		return nil, err
 	}
+	if scorer == nil {
+		scorer = agent.HistoryScorer{History: st, Log: log}
+	}
 	return &Server{
 		store:  st,
 		log:    log,
 		token:  token,
 		addr:   addr,
-		scorer: agent.HistoryScorer{History: st, Log: log},
+		scorer: scorer,
 	}, nil
 }
 

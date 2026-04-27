@@ -32,8 +32,9 @@ func (s *Server) handleListVaults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ranked := s.scorer.Score(ctx, agent.Input{
-		URL:   r.URL.Query().Get("url"),
-		Title: r.URL.Query().Get("title"),
+		URL:        r.URL.Query().Get("url"),
+		Title:      r.URL.Query().Get("title"),
+		DefaultKey: defaultKey,
 	}, vaults)
 
 	out := make([]vaultDTO, 0, len(ranked))

@@ -22,14 +22,30 @@ type Scorer interface {
 }
 
 // Input is what the popup gives us when it opens. URL or Title may be empty
-// (the popup omits them when no active tab is identifiable).
+// (the popup omits them when no active tab is identifiable). DefaultKey is
+// the key of the user's configured default vault; used by HistoryScorer to
+// promote it to head when there's no history, and by BuildSuggestPrompt to
+// give the LLM a concrete fallback option ("if uncertain, reply with the
+// default notebook's name") instead of forcing UNSURE.
 type Input struct {
-	URL   string
-	Title string
+	URL        string
+	Title      string
+	DefaultKey string
 }
 
 // VaultHistory is the read-side store dependency the HistoryScorer needs.
 // store.Store satisfies it; tests fake it.
 type VaultHistory interface {
 	VaultKeysForDomain(ctx context.Context, domain string) ([]string, error)
+}
+
+// Suggester is the LLM-side seam for the pre-clip ranker. Implementations
+// format the prompt (using vault display names + descriptions), call their
+// configured model, and parse the response into a vault display name.
+//
+// Returns the chosen vault's display name on a confident match, or "" for
+// "unsure" / failure / unknown. The "" path is the LLMScorer's signal to
+// fall through to the inner Scorer's ranking unchanged.
+type Suggester interface {
+	Suggest(ctx context.Context, in Input, vaults []store.Vault) string
 }
