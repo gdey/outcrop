@@ -6,7 +6,7 @@ created: 2026-04-26
 authors:
   - gdey
 tags: [design, architecture, firefox-extension, obsidian]
-related: [0002, 0003]
+related: [0002, 0003, 0004]
 superseded-by: ~
 ---
 
@@ -220,3 +220,8 @@ A locally running agent will eventually be wired in to make smarter routing sugg
 - Token-rotation / revocation flows.
 - The scoring algorithm and history-storage format for vault ranking — its own RFD.
 - The agent contract (transport, request/response shape, how the server discovers it) — its own RFD when we're ready to build it.
+
+## Status notes
+
+- 2026-04-26 — Created as `discussion`. Architecture decisions settled.
+- 2026-04-27 — Server side of the architecture is built per RFD 0003 (now `committed`): all endpoints, CLI, history ranking, and the SQLite-backed config landed; manual end-to-end via `curl` validated. Extension side is being designed in RFD 0004; until that lands and is implemented, the architecture as a whole is partially realised.

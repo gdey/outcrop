@@ -6,7 +6,7 @@ created: 2026-04-26
 authors:
   - gdey
 tags: [design, firefox-extension, ux]
-related: [0001]
+related: [0001, 0004]
 superseded-by: ~
 ---
 

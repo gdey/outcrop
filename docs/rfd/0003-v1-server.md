@@ -1,12 +1,12 @@
 ---
 rfd: 0003
 title: V1 Server Implementation
-status: discussion
+status: committed
 created: 2026-04-26
 authors:
   - gdey
 tags: [design, server, go, http]
-related: [0001]
+related: [0001, 0004]
 superseded-by: ~
 ---
 
@@ -428,12 +428,17 @@ Not open questions for v1 — decisions made or consciously deferred:
 
 Refining RFD 0001's build order with the structure above:
 
-1. DB open/migrate + `outcrop init` (creates DB, generates token, writes initial `meta`).
-2. `outcrop vault add/list/remove/rename/default` — `vaults` table CRUD.
-3. `outcrop serve` skeleton: listen, log, healthz, auth middleware, CORS.
-4. `GET /vaults` (alphabetical, no ranking yet).
-5. `POST /clip` writing into a vault. End-to-end with `curl`.
-6. History recording + ranking applied to `GET /vaults`.
-7. Polish: error shapes, logging, tests filling in gaps.
+1. ✅ DB open/migrate + `outcrop init` (creates DB, generates token, writes initial `meta`).
+2. ✅ `outcrop vault add/list/remove/rename/default` — `vaults` table CRUD.
+3. ✅ `outcrop serve` skeleton: listen, log, healthz, auth middleware, CORS.
+4. ✅ `GET /vaults` (alphabetical, no ranking yet).
+5. ✅ `POST /clip` writing into a vault. End-to-end with `curl`.
+6. ✅ History recording + ranking applied to `GET /vaults`.
+7. ✅ Polish: error shapes, logging, tests filling in gaps.
 
 By step 5 the server is usable end-to-end against a hand-built request and can be wired to the extension once that's built.
+
+## Status notes
+
+- 2026-04-26 — Created as `discussion`.
+- 2026-04-27 — Implementation landed in commit `6600b45`. All seven build-order steps complete. Manual end-to-end validated by hand (`outcrop init` → `outcrop vault add` → `outcrop serve` → `curl POST /clip`). Test gaps closed: `cli/`, `server/clip.go`, and `server/health.go` now have direct unit tests; `go test ./...` is clean across all packages. Promoted to `committed`. Future server changes happen as new RFDs (or amendments to this one with explicit deltas), not as in-place rewrites — this document is now reference, not proposal.
