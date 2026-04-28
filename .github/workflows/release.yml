@@ -17,7 +17,7 @@ jobs:
         with:
           fetch-depth: 0  # goreleaser needs full history for the changelog
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -40,9 +40,9 @@ jobs:
       WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
       WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: npm
@@ -57,7 +57,7 @@ jobs:
         run: npm run package
 
       - name: Upload unsigned .zip as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: firefox-unsigned
           path: extension/firefox/dist-artifacts/*.zip
@@ -80,9 +80,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: server  # so the draft release exists before we attach to it
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: npm
