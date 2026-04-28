@@ -8,12 +8,12 @@ Designed for [Obsidian](https://obsidian.md) — an Obsidian vault *is* just a f
 
 Two halves, both running on the user's machine. No cloud, no account.
 
-- **Firefox extension** (`extension/firefox/`) — selection overlay, screen capture, preview-with-notes UI.
+- **Browser extension** — selection overlay, screen capture, preview-with-notes UI. Two parallel codebases sharing the same source structure: [`extension/firefox/`](extension/firefox/) (MV3, ships signed via Mozilla AMO) and [`extension/chrome/`](extension/chrome/) (MV3, side-loaded for now).
 - **Local Go server** (`cmd/outcrop/`) — receives the clip over loopback, writes the note and image into the right folder, tracks per-domain history so future captures default to the most-recently-used folder for the page.
 
 ```
 ┌─────────────────────┐   GET /vaults?url=&title=   ┌──────────────────────┐
-│ Firefox extension   │ ──────────────────────────▶ │ outcrop serve        │ ─▶ markdown folder(s)
+│ Browser extension   │ ──────────────────────────▶ │ outcrop serve        │ ─▶ markdown folder(s)
 │ - drag overlay      │   POST /clip                │ - 127.0.0.1:7878     │   on disk
 │ - preview + notes   │ ──────────────────────────▶ │ - SQLite-backed      │
 └─────────────────────┘                             └──────────────────────┘
@@ -31,7 +31,7 @@ Implemented and shipping:
 |---|---|---|
 | Architecture overview | `discussion` | [0001](docs/rfd/0001-architecture-overview.md) |
 | V1 server | `committed` | [0003](docs/rfd/0003-v1-server.md) |
-| Firefox extension | `draft` | [0004](docs/rfd/0004-firefox-extension.md) |
+| Browser extensions (Firefox + Chrome) | `draft` | [0004](docs/rfd/0004-firefox-extension.md) |
 | Local-LLM vault routing (in-process kronk) | `committed` | [0005](docs/rfd/0005-local-llm-vault-recommendation.md) |
 | Training-data capture | `accepted` (capture-only; export deferred) | [0011](docs/rfd/0011-training-data-capture.md) |
 | Live config reload (fingerprint-on-every-request) | `committed` | [0012](docs/rfd/0012-live-config-reload.md) |
@@ -131,9 +131,13 @@ Every successful clip can be recorded as a labelled `(input → chosen vault)` r
 
 Stored alongside the rest of outcrop's config. Outcrop never uploads anything; export tooling for the recorded rows is deferred ([RFD 0011](docs/rfd/0011-training-data-capture.md)).
 
-## Firefox extension
+## Browser extension
 
 Prerequisites: Node ≥ 20.
+
+The two browsers share the same source structure (`src/background.ts`, `src/content.ts`, popup, options) — only the manifest, the typings (`browser.*` vs `chrome.*`), and the build target differ. Pick the one you use:
+
+### Firefox
 
 ```sh
 cd extension/firefox
@@ -141,11 +145,21 @@ npm install
 npm run build          # → dist/
 ```
 
-Load the extension via Firefox's `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → pick `extension/firefox/dist/manifest.json`. The options page opens automatically on first install — paste the token from `outcrop init`, click **Test connection**.
+Load via Firefox's `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → pick `extension/firefox/dist/manifest.json`. The options page opens automatically on first install — paste the token from `outcrop init`, click **Test connection**. `npm run package` produces a loadable `.xpi` in `dist-artifacts/`. See [`extension/firefox/README.md`](extension/firefox/README.md) for development details.
 
-Capture flow: click the toolbar icon → pick a vault → **Capture** → drag a rectangle → type notes → **⌘/Ctrl+Enter** to save (or **Escape** to cancel).
+### Chrome (and Chromium-family: Edge, Brave, Arc)
 
-`npm run package` produces a loadable `.xpi` in `dist-artifacts/`. See [`extension/firefox/README.md`](extension/firefox/README.md) for development details (`npm run dev`, etc.).
+```sh
+cd extension/chrome
+npm install
+npm run build          # → dist/
+```
+
+Load via `chrome://extensions` → toggle **Developer mode** → **Load unpacked** → pick `extension/chrome/dist/`. Options page opens automatically. `npm run package` produces a `.zip` in `dist-artifacts/`. See [`extension/chrome/README.md`](extension/chrome/README.md) for development details.
+
+### Capture flow (both browsers)
+
+Click the toolbar icon → pick a vault → **Capture** → drag a rectangle → type notes → **⌘/Ctrl+Enter** to save (or **Escape** to cancel).
 
 ## Project layout
 
@@ -159,6 +173,7 @@ Capture flow: click the toolbar icon → pick a vault → **Capture** → drag a
 ├── clip/               # write-a-clip orchestration (decode PNG + compose markdown)
 ├── agent/              # vault Scorer (history + LLM); kronk + HTTP backends
 ├── extension/firefox/  # Firefox MV3 extension (TypeScript + esbuild + web-ext)
+├── extension/chrome/   # Chrome MV3 extension (port; same source structure)
 ├── docs/rfd/           # design RFDs
 ├── vendor/             # vendored Go dependencies
 └── go.mod

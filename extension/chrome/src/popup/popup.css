@@ -1,0 +1,134 @@
+body {
+  width: 320px;
+  margin: 0;
+  padding: 12px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  color: #1c1c1c;
+  background: #fff;
+}
+
+.loading {
+  padding: 16px;
+  text-align: center;
+  color: #888;
+}
+
+.error {
+  padding: 12px;
+  background: #ffe9e9;
+  border: 1px solid #f3b1b1;
+  border-radius: 4px;
+  color: #7a1212;
+  margin-bottom: 12px;
+}
+
+.error-actions {
+  margin-top: 8px;
+}
+
+.label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+  margin-bottom: 4px;
+}
+
+.vault-section {
+  margin-bottom: 12px;
+}
+
+.vault-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #c9c9c9;
+  border-radius: 18px;
+  background: #f7f7f7;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.vault-pill:hover:not(:disabled) {
+  background: #ececec;
+}
+
+.vault-pill:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.star {
+  color: #f0a800;
+  margin-left: 4px;
+}
+
+.caret {
+  color: #888;
+  margin-left: 8px;
+}
+
+.vault-list {
+  list-style: none;
+  padding: 4px 0;
+  margin: 4px 0 0;
+  border: 1px solid #e3e3e3;
+  border-radius: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.vault-list li {
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.vault-list li:hover {
+  background: #f3f3f3;
+}
+
+.vault-list li.selected {
+  background: #e3edf6;
+}
+
+.actions {
+  margin-top: 12px;
+}
+
+button.primary {
+  width: 100%;
+  padding: 10px;
+  font: inherit;
+  font-weight: 500;
+  background: #4682b4;
+  border: 1px solid #4682b4;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #3a6f99;
+}
+
+button.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+a.settings-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: #4682b4;
+  text-decoration: none;
+  font-size: 12px;
+}
+
+a.settings-link:hover {
+  text-decoration: underline;
+}

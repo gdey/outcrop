@@ -1,0 +1,22 @@
+{
+  "name": "outcrop-chrome",
+  "version": "0.1.1",
+  "description": "Outcrop Chrome extension — clip a region of a webpage into a markdown-notes folder.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "node esbuild.config.mjs && node scripts/copy-static.mjs",
+    "dev": "node esbuild.config.mjs --watch & web-ext run --source-dir=dist --target=chromium",
+    "package": "npm run check && npm run build && web-ext build --source-dir=dist --artifacts-dir=dist-artifacts --overwrite-dest --filename=outcrop-{version}_chrome.zip"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.330",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0",
+    "web-ext": "^10.1.0"
+  }
+}
