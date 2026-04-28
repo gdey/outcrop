@@ -2,20 +2,24 @@
 
 <img src="logo.svg" alt="logo" width="50%"/> <br>
 
-Clip a region of a webpage into an Obsidian vault. Drag a rectangle in Firefox; a markdown note — with the source URL, your annotations, and the cropped PNG — lands in an Obsidian vault on disk.
+Clip a region of a webpage into a markdown-notes folder. Drag a rectangle in Firefox; a markdown note — with the source URL, your annotations, and the cropped PNG — lands in the folder on disk.
+
+Designed for [Obsidian](https://obsidian.md) — an Obsidian vault *is* just a folder of markdown files — but outcrop only writes plain `.md` + `.png`, so any markdown-based system works: a plain folder, a Foam workspace, a Logseq graph, a git-backed notes repo, anything that reads markdown from a directory.
 
 Two halves, both running on the user's machine. No cloud, no account.
 
 - **Firefox extension** (`extension/firefox/`) — selection overlay, screen capture, preview-with-notes UI.
-- **Local Go server** (`cmd/outcrop/`) — receives the clip over loopback, writes the note and image into the right vault, tracks per-domain history so future captures default to the most-recently-used vault for the page.
+- **Local Go server** (`cmd/outcrop/`) — receives the clip over loopback, writes the note and image into the right folder, tracks per-domain history so future captures default to the most-recently-used folder for the page.
 
 ```
 ┌─────────────────────┐   GET /vaults?url=&title=   ┌──────────────────────┐
-│ Firefox extension   │ ──────────────────────────▶ │ outcrop serve        │ ─▶ Obsidian vault(s)
-│ - drag overlay      │   POST /clip                │ - 127.0.0.1:7878     │   (filesystem)
+│ Firefox extension   │ ──────────────────────────▶ │ outcrop serve        │ ─▶ markdown folder(s)
+│ - drag overlay      │   POST /clip                │ - 127.0.0.1:7878     │   on disk
 │ - preview + notes   │ ──────────────────────────▶ │ - SQLite-backed      │
 └─────────────────────┘                             └──────────────────────┘
 ```
+
+(The CLI calls them "vaults" — the term is borrowed from Obsidian and stays in the code as the canonical name for "a destination folder you've registered." Calling `outcrop vault add /path/to/anything` works whether or not Obsidian is anywhere in the picture.)
 
 The full design is in [`docs/rfd/`](docs/rfd/). The README in that directory explains the RFD format and lifecycle.
 
@@ -38,12 +42,13 @@ Prerequisites: Go (see `go.mod` for the directive).
 go build ./cmd/outcrop
 ./outcrop init                                # writes config DB, prints a token
 
-# Register an Obsidian vault. A description is strongly recommended if you
-# plan to use the LLM router (RFD 0005) — vaults without one are at a
+# Register a destination folder (an "Obsidian vault" is one example; any
+# markdown-notes folder works). A description is strongly recommended if
+# you plan to use the LLM router (RFD 0005) — vaults without one are at a
 # routing disadvantage versus vaults that have one.
 ./outcrop vault add \
     --description "life admin, journaling, news, things to remember" \
-    Personal /path/to/Vault
+    Personal /path/to/notes-folder
 
 ./outcrop serve                               # listens on 127.0.0.1:7878
 ```

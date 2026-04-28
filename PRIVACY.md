@@ -8,9 +8,9 @@ Outcrop is a local-first tool. Everything you clip, everything outcrop captures 
 
 When you save a clip, outcrop writes:
 
-- A markdown note containing the page **title**, **URL**, your **typed notes**, any **selected text** from the page, and a wikilink to the cropped image. Goes into the destination Obsidian vault you picked.
-- The **cropped PNG image** of the region you selected. Goes into the same vault, alongside the note.
-- A **per-domain history row** in outcrop's local SQLite database, recording which vault you saved to. Used to rank vaults in the popup the next time you clip from the same site.
+- A markdown note containing the page **title**, **URL**, your **typed notes**, any **selected text** from the page, and a wikilink to the cropped image. Goes into the destination folder you picked (the term "vault" comes from Obsidian; outcrop just sees a folder of markdown).
+- The **cropped PNG image** of the region you selected. Goes into the same folder, alongside the note.
+- A **per-domain history row** in outcrop's local SQLite database, recording which folder you saved to. Used to rank destinations in the popup the next time you clip from the same site.
 
 When you enable the LLM agent (`outcrop agent enable`), the agent sees the URL, the page title, your vault display names, and any descriptions you attached to those vaults — every time the popup opens. The model itself runs in-process by default (`kronk` backend), so its inputs never leave your machine. If you choose the HTTP backend (`outcrop agent enable --backend http --endpoint URL`), the same inputs are sent to whatever endpoint you configured — see "When data leaves the machine," below.
 
@@ -33,7 +33,7 @@ Inside that directory:
 
 The kronk backend's llama.cpp shared libraries are downloaded under `~/.kronk/libraries/` by kronk itself the first time you enable the in-process agent.
 
-The clipped notes and images go into the **Obsidian vault directories you registered** with `outcrop vault add`. Outcrop does not move those files anywhere else.
+The clipped notes and images go into the **destination folders you registered** with `outcrop vault add` (typically Obsidian vaults, but any folder works). Outcrop does not move those files anywhere else.
 
 ## What leaves the machine
 

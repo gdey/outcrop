@@ -1,0 +1,76 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  server:
+    name: Server binaries (goreleaser)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # goreleaser needs full history for the changelog
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  extension:
+    name: Firefox extension
+    runs-on: ubuntu-latest
+    needs: server  # so the draft release exists before we attach to it
+    env:
+      # web-ext reads these env var names natively when --api-key/--api-secret
+      # are omitted. Empty strings short-circuit the sign step below.
+      WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+      WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: extension/firefox/package-lock.json
+
+      - name: Install dependencies
+        working-directory: extension/firefox
+        run: npm ci
+
+      - name: Build extension
+        working-directory: extension/firefox
+        run: npm run package
+
+      - name: Upload unsigned .zip as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-unsigned
+          path: extension/firefox/dist-artifacts/*.zip
+
+      - name: Sign extension (Mozilla AMO, unlisted channel)
+        if: env.WEB_EXT_API_KEY != ''
+        working-directory: extension/firefox
+        run: npm run sign
+
+      - name: Attach signed .xpi to release
+        if: env.WEB_EXT_API_KEY != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          files: extension/firefox/dist-artifacts/*.xpi
+          tag_name: ${{ github.ref_name }}
+          draft: true

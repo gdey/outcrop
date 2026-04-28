@@ -77,15 +77,17 @@ The database lives at:
 
 `outcrop config path` prints the resolved path on your machine.
 
-### Register an Obsidian vault
+### Register a destination folder
+
+Outcrop writes plain `.md` + `.png` files into the folder you point it at. An Obsidian vault is one example; any markdown-notes folder works (Foam workspace, Logseq graph, plain folder of notes, git-backed notes repo, etc.).
 
 ```sh
 outcrop vault add \
     --description "life admin, journaling, news, things to remember" \
-    Personal /path/to/your/Obsidian/Vault
+    Personal /path/to/your/notes-folder
 ```
 
-The `--description` is optional but **strongly recommended** if you plan to use the LLM agent — vaults without a description are at a routing disadvantage. Add as many vaults as you have:
+The `--description` is optional but **strongly recommended** if you plan to use the LLM agent — vaults without a description are at a routing disadvantage. Add as many folders as you have:
 
 ```sh
 outcrop vault add --description "ML papers, programming, software engineering" Tech /path/to/Tech-Vault
