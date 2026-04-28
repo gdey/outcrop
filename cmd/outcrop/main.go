@@ -37,6 +37,8 @@ func run(args []string) error {
 		return cli.CmdAgent(rest)
 	case "training-data":
 		return cli.CmdTrainingData(rest)
+	case "install-service":
+		return cli.CmdInstallService(rest)
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -71,6 +73,10 @@ Usage:
   outcrop training-data disable
   outcrop training-data status
   outcrop training-data clear [--yes]
+
+  outcrop install-service [install]    # set up run-on-login (launchd / systemd / Task Scheduler)
+  outcrop install-service uninstall
+  outcrop install-service status
 
   outcrop config show [--show-token]
   outcrop config path
