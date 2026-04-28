@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -20,6 +21,14 @@ type clipRequest struct {
 	SelectedText string `json:"selectedText"`
 	Notes        string `json:"notes"`
 	ImageBase64  string `json:"imageBase64"`
+
+	// SuggestedVault is the key of the vault that was at the top of the
+	// popup's ranked list (the "pill") when the user opened it — i.e., what
+	// the system suggested. Optional; absent for older extensions or for
+	// curl-driven invocations. Stored as training_examples.suggested_vault_key
+	// when training-data capture is enabled (RFD 0011); the override signal
+	// (suggestion ≠ chosen) is the high-value feedback for fine-tuning.
+	SuggestedVault string `json:"suggestedVault,omitempty"`
 }
 
 // clipResponse is the JSON shape returned on success.
@@ -88,8 +97,54 @@ func (s *Server) handleClip(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Best-effort training-data capture (RFD 0011). The clip is already on
+	// disk; failure here is logged but doesn't fail the request.
+	if enabled, _ := s.store.Meta(ctx, store.MetaTrainingDataEnabled); enabled == "true" {
+		if err := s.recordTrainingExample(ctx, req, v, res); err != nil {
+			s.log.Warn("training-data capture", "err", err)
+		}
+	}
+
 	writeJSON(w, clipResponse{
 		NotePath:  res.NotePath,
 		ImagePath: res.ImagePath,
+	})
+}
+
+// recordTrainingExample captures the context of a successful clip per
+// RFD 0011. Reads the current vault list to denormalise candidate names +
+// descriptions, and reads the agent_enabled flag to record the routing mode.
+// Always returns the underlying error rather than swallowing — caller logs.
+func (s *Server) recordTrainingExample(ctx context.Context, req clipRequest, v store.Vault, res clip.Result) error {
+	vaults, err := s.store.ListVaults(ctx)
+	if err != nil {
+		return err
+	}
+	cands := make([]store.CandidateVaultRef, 0, len(vaults))
+	for _, vv := range vaults {
+		cands = append(cands, store.CandidateVaultRef{
+			Key:         vv.Key,
+			DisplayName: vv.DisplayName,
+			Description: vv.Description,
+		})
+	}
+
+	mode := "none"
+	if agentEnabled, _ := s.store.Meta(ctx, store.MetaAgentEnabled); agentEnabled == "true" {
+		mode = "preclip"
+	}
+
+	return s.store.RecordTrainingExample(ctx, store.TrainingExample{
+		Time:              time.Now().UTC(),
+		Mode:              mode,
+		URL:               req.URL,
+		Title:             req.Title,
+		SelectedText:      req.SelectedText,
+		Notes:             req.Notes,
+		CandidateVaults:   cands,
+		SuggestedVaultKey: req.SuggestedVault,
+		ActualVaultKey:    v.Key,
+		NotePath:          res.NotePath,
+		ImagePath:         res.ImagePath,
 	})
 }

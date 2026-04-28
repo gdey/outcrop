@@ -20,3 +20,17 @@ func DBPath() (string, error) {
 	}
 	return filepath.Join(cfg, "outcrop", "outcrop.db"), nil
 }
+
+// ModelsDir returns the directory where downloaded GGUF model files live —
+// a sibling of the DB directory, per RFD 0005 §"Storage". Honours the
+// OUTCROP_MODELS_DIR override for tests.
+func ModelsDir() (string, error) {
+	if v := os.Getenv("OUTCROP_MODELS_DIR"); v != "" {
+		return v, nil
+	}
+	cfg, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("locate user config dir: %w", err)
+	}
+	return filepath.Join(cfg, "outcrop", "models"), nil
+}

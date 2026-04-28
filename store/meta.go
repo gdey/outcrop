@@ -21,6 +21,9 @@ const (
 	MetaAgentModel     = "agent_model"      // model name on the endpoint (http only)
 	MetaAgentAPIKey    = "agent_api_key"    // optional bearer (http only)
 	MetaAgentTimeoutMs = "agent_timeout_ms" // integer milliseconds
+
+	// Training-data capture (RFD 0011).
+	MetaTrainingDataEnabled = "training_data_enabled" // "true" / "false"
 )
 
 // Meta returns the value of a singleton config key, or "" with no error if the

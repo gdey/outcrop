@@ -20,6 +20,10 @@ import { isConfigured, loadSettings } from "./lib/settings";
 type CaptureState = {
   vaultKey: string;
   vaultName: string;
+  // suggestedKey is the vault the popup ranked first when it loaded — i.e.,
+  // the system's suggestion. Forwarded to POST /clip's suggestedVault for
+  // training-data capture; "suggestion vs. chosen" is the override signal.
+  suggestedKey?: string;
   windowId: number;
   url: string;
   title: string;
@@ -58,7 +62,7 @@ async function notify(title: string, message: string): Promise<void> {
 browser.runtime.onMessage.addListener((msg: Message, sender) => {
   switch (msg.type) {
     case "begin":
-      return handleBegin(msg.vaultKey, msg.vaultName);
+      return handleBegin(msg.vaultKey, msg.vaultName, msg.suggestedKey);
     case "rect":
       return handleRect(msg, sender);
     case "save":
@@ -73,7 +77,11 @@ browser.runtime.onMessage.addListener((msg: Message, sender) => {
   }
 });
 
-async function handleBegin(vaultKey: string, vaultName: string): Promise<void> {
+async function handleBegin(
+  vaultKey: string,
+  vaultName: string,
+  suggestedKey: string | undefined,
+): Promise<void> {
   const tabs = await browser.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
   if (!tab?.id || tab.windowId === undefined) return;
@@ -81,6 +89,7 @@ async function handleBegin(vaultKey: string, vaultName: string): Promise<void> {
   await setState(tab.id, {
     vaultKey,
     vaultName,
+    suggestedKey,
     windowId: tab.windowId,
     url: "",
     title: "",
@@ -159,6 +168,7 @@ async function handleSave(msg: SaveMessage, sender: browser.runtime.MessageSende
   try {
     await client.clip({
       vault: state.vaultKey,
+      suggestedVault: state.suggestedKey,
       url: state.url,
       title: state.title,
       selectedText: state.selectedText,

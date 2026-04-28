@@ -96,6 +96,11 @@ async function renderReady(settings: Settings, tab: browser.tabs.Tab | undefined
     return;
   }
 
+  // The vault at index 0 is the system's suggestion (LLM-nudged when the
+  // agent is enabled, history/default-promoted otherwise). Capture it now;
+  // the user may pick a different vault below, but the *suggestion* is
+  // forwarded to the server for training-data capture (RFD 0011).
+  const suggestedKey = vaults[0]!.key;
   let selected = vaults[0]!;
   let expanded = false;
 
@@ -164,6 +169,7 @@ async function renderReady(settings: Settings, tab: browser.tabs.Tab | undefined
       type: "begin",
       vaultKey: selected.key,
       vaultName: selected.displayName,
+      suggestedKey,
     };
     await browser.runtime.sendMessage(msg);
     window.close();

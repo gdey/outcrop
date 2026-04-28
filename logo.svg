@@ -10,8 +10,8 @@
 
   <!-- Bars between rings (top and bottom) -->
   <g stroke="#1d6e72" stroke-width="22" stroke-linecap="butt">
-    <line x1="256" y1="39"  x2="256" y2="65"/>
-    <line x1="256" y1="447" x2="256" y2="473"/>
+    <line x1="256" y1="38"  x2="256" y2="66"/>
+    <line x1="256" y1="446" x2="256" y2="474"/>
   </g>
 
   <!-- Window outline (corners on the inner circle, r=180) -->
@@ -36,7 +36,10 @@
         fill="#1d6e72"/>
 
   <!-- Dashed selection box: top-right corner at window top-right corner -->
-  <rect x="280" y="148" width="120" height="120"
+  <rect x="279" y="145" width="123" height="122"
+        fill="#ffffff" stroke="#ffffff" stroke-width="16"
+        />
+  <rect x="280" y="146" width="120" height="120"
         fill="#ffffff" stroke="#1d6e72" stroke-width="10"
         stroke-dasharray="14 10"/>
 </svg>

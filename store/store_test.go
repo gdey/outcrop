@@ -208,6 +208,155 @@ func TestHistory_CascadesOnVaultDelete(t *testing.T) {
 	}
 }
 
+func TestTrainingExamples_RoundTrip(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	// Empty store.
+	if n, err := st.TrainingExampleCount(ctx); err != nil || n != 0 {
+		t.Errorf("count empty: n=%d err=%v", n, err)
+	}
+	if _, has, err := st.LastTrainingExampleTime(ctx); err != nil || has {
+		t.Errorf("last empty: has=%v err=%v", has, err)
+	}
+
+	when := time.Date(2026, 4, 27, 14, 0, 0, 0, time.UTC)
+	ex := TrainingExample{
+		Time:           when,
+		Mode:           "preclip",
+		URL:            "https://example.com/article",
+		Title:          "Example Article",
+		SelectedText:   "quoted bit",
+		Notes:          "my notes",
+		ActualVaultKey: "kA",
+		NotePath:       "Clippings/clip-20260427.md",
+		ImagePath:      "Clippings/attachments/clip-20260427.png",
+		CandidateVaults: []CandidateVaultRef{
+			{Key: "kA", DisplayName: "Personal", Description: "life admin"},
+			{Key: "kB", DisplayName: "Tech"},
+		},
+	}
+	if err := st.RecordTrainingExample(ctx, ex); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+
+	if n, err := st.TrainingExampleCount(ctx); err != nil || n != 1 {
+		t.Errorf("count = %d err=%v, want 1", n, err)
+	}
+	got, has, err := st.LastTrainingExampleTime(ctx)
+	if err != nil || !has {
+		t.Fatalf("last: has=%v err=%v", has, err)
+	}
+	if !got.Equal(when) {
+		t.Errorf("last time = %v, want %v", got, when)
+	}
+
+	// Mode and ActualVaultKey are required.
+	if err := st.RecordTrainingExample(ctx, TrainingExample{ActualVaultKey: "kA"}); err == nil {
+		t.Errorf("expected error for empty mode")
+	}
+	if err := st.RecordTrainingExample(ctx, TrainingExample{Mode: "preclip"}); err == nil {
+		t.Errorf("expected error for empty actual_vault_key")
+	}
+}
+
+func TestClearTrainingExamples(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	// Empty store → 0 rows cleared, no error.
+	if n, err := st.ClearTrainingExamples(ctx); err != nil || n != 0 {
+		t.Errorf("clear empty: n=%d err=%v", n, err)
+	}
+
+	for range 3 {
+		if err := st.RecordTrainingExample(ctx, TrainingExample{
+			Mode:           "preclip",
+			URL:            "https://x",
+			Title:          "x",
+			ActualVaultKey: "kA",
+			NotePath:       "n.md",
+			ImagePath:      "n.png",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if c, _ := st.TrainingExampleCount(ctx); c != 3 {
+		t.Fatalf("setup: count = %d, want 3", c)
+	}
+
+	n, err := st.ClearTrainingExamples(ctx)
+	if err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("cleared = %d, want 3", n)
+	}
+
+	if c, _ := st.TrainingExampleCount(ctx); c != 0 {
+		t.Errorf("post-clear count = %d, want 0", c)
+	}
+}
+
+func TestTrainingSuggestionStats(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	// Empty store → zeros.
+	if sugg, ovr, err := st.TrainingSuggestionStats(ctx); err != nil || sugg != 0 || ovr != 0 {
+		t.Errorf("empty stats: sugg=%d ovr=%d err=%v", sugg, ovr, err)
+	}
+
+	base := TrainingExample{
+		Mode:           "preclip",
+		URL:            "https://x",
+		Title:          "x",
+		ActualVaultKey: "kA",
+		NotePath:       "Clippings/n.md",
+		ImagePath:      "Clippings/attachments/n.png",
+	}
+
+	// Row 1: no suggestion captured (empty string).
+	if err := st.RecordTrainingExample(ctx, base); err != nil {
+		t.Fatal(err)
+	}
+
+	// Row 2: suggestion = actual (user accepted the pill).
+	r := base
+	r.SuggestedVaultKey = "kA"
+	if err := st.RecordTrainingExample(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+
+	// Row 3: suggestion ≠ actual (user overrode the pill).
+	r = base
+	r.SuggestedVaultKey = "kB"
+	r.ActualVaultKey = "kA"
+	if err := st.RecordTrainingExample(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+
+	// Row 4: another override.
+	r = base
+	r.SuggestedVaultKey = "kC"
+	r.ActualVaultKey = "kA"
+	if err := st.RecordTrainingExample(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+
+	sugg, ovr, err := st.TrainingSuggestionStats(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sugg != 3 {
+		t.Errorf("suggested = %d, want 3", sugg)
+	}
+	if ovr != 2 {
+		t.Errorf("overrides = %d, want 2", ovr)
+	}
+}
+
 func TestOpen_IsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "outcrop.db")

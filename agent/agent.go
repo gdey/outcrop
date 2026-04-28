@@ -49,3 +49,13 @@ type VaultHistory interface {
 type Suggester interface {
 	Suggest(ctx context.Context, in Input, vaults []store.Vault) string
 }
+
+// VerboseSuggester is the diagnostic surface used by `outcrop agent test`.
+// Implementations return the raw model reply alongside the parsed result so
+// the caller can see what the model actually said when the parser rejects
+// it, plus any transport / load error. Both HTTPSuggester and KronkSuggester
+// satisfy it; the LLMScorer never calls it (production path uses Suggest).
+type VerboseSuggester interface {
+	Suggester
+	SuggestVerbose(ctx context.Context, in Input, vaults []store.Vault) (parsed, raw string, err error)
+}

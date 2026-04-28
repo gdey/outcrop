@@ -21,11 +21,13 @@ The full design is in [`docs/rfd/`](docs/rfd/). The README in that directory exp
 
 ## Status
 
-| Half | Status | RFD |
+| Component | Status | RFD |
 |---|---|---|
 | Architecture overview | `discussion` | [0001](docs/rfd/0001-architecture-overview.md) |
 | V1 server | `committed` | [0003](docs/rfd/0003-v1-server.md) |
 | Firefox extension | `draft` | [0004](docs/rfd/0004-firefox-extension.md) |
+| Local-LLM vault routing (in-process kronk) | `committed` | [0005](docs/rfd/0005-local-llm-vault-recommendation.md) |
+| Training-data capture | `accepted` (capture-only; export deferred) | [0011](docs/rfd/0011-training-data-capture.md) |
 | Click-element capture (post-v1) | `ideation` | [0002](docs/rfd/0002-click-element-capture.md) |
 
 ## Server
@@ -65,7 +67,9 @@ Other CLI subcommands:
 
 ```
 outcrop vault list
+outcrop vault show <key>
 outcrop vault rename <key> <newName>
+outcrop vault describe <key> "<description>"
 outcrop vault remove <key>
 outcrop vault default <key>
 outcrop config show [--show-token]
@@ -73,6 +77,40 @@ outcrop config path
 ```
 
 Tests: `go test ./...`.
+
+## Local LLM (optional)
+
+Outcrop can rank vaults with a local LLM so the popup pill is the right vault more often. The agent runs **in-process** via [kronk](https://github.com/ardanlabs/kronk) — no separate daemon, no cloud — and can also talk to any OpenAI-compatible endpoint (ollama, llama-server, vLLM) over loopback.
+
+```sh
+./outcrop agent enable                         # interactive: installs kronk's
+                                               # llama.cpp libs (~50 MB) and
+                                               # downloads the recommended
+                                               # default model (~1.9 GB).
+./outcrop agent status                         # config + model file + libs probe
+./outcrop agent test https://example.com "Some Title"   # one-shot prompt + result
+```
+
+Or point it at a model you already have, or at an existing local backend:
+
+```sh
+./outcrop agent enable --backend kronk --model /path/to/your/model.gguf
+./outcrop agent enable --backend http  --model llama3.2:3b              # ollama, etc.
+```
+
+The full design and trade-offs are in [RFD 0005](docs/rfd/0005-local-llm-vault-recommendation.md).
+
+### Training data (optional)
+
+Every successful clip can be recorded as a labelled `(input → chosen vault)` row, locally, for later fine-tuning of the agent on *your* routing preferences. Off by default; enabling shows exactly what gets captured before turning on.
+
+```sh
+./outcrop training-data enable
+./outcrop training-data status     # row count + last capture
+./outcrop training-data disable
+```
+
+Stored alongside the rest of outcrop's config. Outcrop never uploads anything; export tooling for the recorded rows is deferred ([RFD 0011](docs/rfd/0011-training-data-capture.md)).
 
 ## Firefox extension
 
@@ -95,11 +133,12 @@ Capture flow: click the toolbar icon → pick a vault → **Capture** → drag a
 ```
 .
 ├── cmd/outcrop/        # CLI entrypoint
-├── cli/                # init / serve / vault / config subcommand implementations
+├── cli/                # init / serve / vault / config / agent / training-data subcommands
 ├── server/             # HTTP handlers, middleware, CORS, auth
-├── store/              # SQLite schema, migrations, vault / history / meta accessors
+├── store/              # SQLite schema, migrations, vault / history / meta / training accessors
 ├── vault/              # vault path resolution, atomic + exclusive writes
 ├── clip/               # write-a-clip orchestration (decode PNG + compose markdown)
+├── agent/              # vault Scorer (history + LLM); kronk + HTTP backends
 ├── extension/firefox/  # Firefox MV3 extension (TypeScript + esbuild + web-ext)
 ├── docs/rfd/           # design RFDs
 ├── vendor/             # vendored Go dependencies

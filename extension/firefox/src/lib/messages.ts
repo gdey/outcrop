@@ -15,6 +15,12 @@ export type BeginMessage = {
   type: "begin";
   vaultKey: string;
   vaultName: string;
+  // suggestedKey is the key of whichever vault was at the top of the popup's
+  // ranked list (the pill) when it loaded — i.e., what the system suggested.
+  // Forwarded to the server as POST /clip's suggestedVault field for
+  // training-data capture (RFD 0011): suggestion vs. chosen is the override
+  // signal that drives fine-tuning.
+  suggestedKey?: string;
 };
 
 // content → background: user finished dragging the rectangle.

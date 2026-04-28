@@ -1,7 +1,7 @@
 ---
 rfd: 0011
 title: Training-data Capture for Fine-tuning
-status: ideation
+status: accepted
 created: 2026-04-27
 authors:
   - gdey
@@ -96,4 +96,23 @@ The training table holds sensitive fields: URLs, titles, notes typed by the user
 ## Status notes
 
 - 2026-04-27 — Created as `ideation`. Spawned by the observation that the agent's accept/override behaviour is implicit training data worth capturing while RFD 0005 ships. Move to `draft` once RFD 0005 is in users' hands and the capture surface is concrete enough to design against real Suggester / Refiner outputs.
+- 2026-04-27 — **Capture surface shipped** alongside RFD 0005's commit. Promoted `ideation` → `accepted`. The motivation got stronger after auto-route was deferred (see RFD 0005's status note): without Auto, every clip is a clean `(input → chosen vault)` pair, so capture *now* — while the user's actual workflow is generating data — is exactly what fine-tuning will need.
+
+  Landed:
+  - Migration `00003_training_examples.sql` with the `training_examples` table (denormalised, no FK to vaults — examples must outlive the vaults they reference).
+  - `MetaTrainingDataEnabled` (default false), opt-in via `outcrop training-data enable / disable / status`.
+  - `store.RecordTrainingExample` / `TrainingExampleCount` / `LastTrainingExampleTime`.
+  - `server.handleClip` records one row per successful POST /clip when enabled. Best-effort: the clip is on disk regardless; capture failures log WARN.
+  - The enable command's prompt explicitly enumerates what gets captured before turning on.
+
+  **Reserved but not populated in v1** (forward-compat columns; populated by future work):
+  - `suggested_vault_key` — would record what the LLM suggested; needs the Scorer re-run at /clip time, or extension passing it back. Skipped for v1; the chosen-vault-only signal is enough for supervised fine-tuning.
+  - `auto_routed` — only meaningful if RFD 0005's Auto-route ever lands. Always 0 in v1.
+  - `image_sha256` — for deduplication; computing requires reading the file post-write. Skipped for v1.
+
+  **Deferred (separate RFDs or follow-up commits):**
+  - Export tooling (`outcrop training-data export --format jsonl|csv`).
+  - Read CLI (`outcrop training-data list`).
+  - Pruning (`outcrop training-data prune`).
+  - The actual fine-tuning workflow — out of scope for outcrop; users export and run a notebook / kronk training script externally.
 - 2026-04-27 — Motivation refined based on RFD 0005 step-5 smoke-testing findings: a 3B model with real descriptions already routes well; this RFD's value lands in capturing user-specific *deltas* from the working default, not in compensating for too-small a model. Implication for design: dataset *quality* (correct user-picked vault, accurate "what was suggested") matters more than dataset *size*, since the model has a competent baseline to start from. See RFD 0005 §Status notes for the underlying observation.

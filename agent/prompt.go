@@ -11,22 +11,14 @@ import (
 // Suggester. Backends prepend this to the user message that BuildSuggestPrompt
 // produces.
 //
-// The prompt has three jobs that small models otherwise tend to fail:
-//
-//  1. Distinguish the notebook *name* from its description. The list is
-//     rendered as "name" or "name — description"; without explicit guidance
-//     the model often echoes the description back as part of the answer.
-//  2. Give the model a concrete fallback when nothing fits. Small models are
-//     trained to be helpful and resist abstaining; a positive instruction
-//     ("reply with the default notebook's name") is much easier for them to
-//     take than a bare "reply UNSURE."
-//  3. Reserve UNSURE for genuine mismatches so the signal stays useful for
-//     telemetry and future fine-tuning (RFD 0011).
+// Concrete fallback instructions (the literal default-vault name, the UNSURE
+// option) live in the *user* prompt rather than here, so the model sees the
+// actual notebook name spelled out alongside the choices instead of having
+// to reason about a meta-label like "the default notebook." Small models
+// otherwise echo the meta-label back as their answer.
 const suggestSystemPrompt = `You route a webpage clip to one of the user's notebooks based on the page's topic.
 
 Match the page to the notebook whose description is the closest fit.
-If no notebook is a clear fit, fall back to the "Default notebook" shown above the notebook list (if one is provided) and reply with its name.
-Reply UNSURE only if the page is genuinely unrelated to every notebook on the list.
 
 Each notebook below is shown as either just its name, or "name — description".
 Reply with ONLY the notebook name (the part before the em-dash, if any).
@@ -36,9 +28,10 @@ Do NOT include the description, quotes, dashes, or any other text.`
 // Suggester sends to the model. URL and title come from Input; the user-facing
 // vault list comes from `vaults` (and includes descriptions when present).
 //
-// When in.DefaultKey names a vault in the list, the prompt includes a
-// "Default notebook: <name>" line above the list — see suggestSystemPrompt
-// for how the model is told to use it.
+// When in.DefaultKey names a vault in the list, the user prompt's tail
+// instructs the model to fall back to that vault by *name* ("If no notebook
+// clearly fits, reply with Personal") rather than via a meta-label the model
+// might echo back as its answer.
 func BuildSuggestPrompt(in Input, vaults []store.Vault) (system, user string) {
 	system = suggestSystemPrompt
 
@@ -59,9 +52,6 @@ func BuildSuggestPrompt(in Input, vaults []store.Vault) (system, user string) {
 	if in.Title != "" {
 		fmt.Fprintf(&b, "Title: %s\n", in.Title)
 	}
-	if defaultName != "" {
-		fmt.Fprintf(&b, "\nDefault notebook: %s\n", defaultName)
-	}
 	b.WriteString("\nNotebooks:\n")
 	for _, v := range vaults {
 		if v.Description != "" {
@@ -69,6 +59,11 @@ func BuildSuggestPrompt(in Input, vaults []store.Vault) (system, user string) {
 		} else {
 			fmt.Fprintf(&b, "- %s\n", v.DisplayName)
 		}
+	}
+	if defaultName != "" {
+		fmt.Fprintf(&b, "\nIf no notebook clearly fits this page, reply with %s.\nReply UNSURE only if the page is genuinely unrelated to every notebook above.\n", defaultName)
+	} else {
+		b.WriteString("\nIf no notebook clearly fits this page, reply UNSURE.\n")
 	}
 	b.WriteString("\nBest match:")
 	user = b.String()

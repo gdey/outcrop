@@ -14,6 +14,11 @@ export type ClipRequest = {
   selectedText: string;
   notes: string;
   imageBase64: string;
+  // suggestedVault is the key of the vault at the top of /vaults' ranked
+  // response when the popup loaded (i.e., what the system suggested).
+  // Optional. Stored server-side as training_examples.suggested_vault_key
+  // when training-data capture is enabled (RFD 0011).
+  suggestedVault?: string;
 };
 
 export type ClipResponse = {

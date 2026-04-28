@@ -35,6 +35,8 @@ func run(args []string) error {
 		return cli.CmdConfig(rest)
 	case "agent":
 		return cli.CmdAgent(rest)
+	case "training-data":
+		return cli.CmdTrainingData(rest)
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -58,10 +60,17 @@ Usage:
   outcrop vault remove <key>
   outcrop vault default <key>
 
-  outcrop agent enable [--backend http|kronk] --model NAME [--endpoint URL] [--api-key KEY] [--timeout MS]
+  outcrop agent enable [--backend kronk|http] [--model NAME-or-PATH] [--endpoint URL] [--api-key KEY] [--timeout MS] [--download]
+  outcrop agent download [--model ID] [--vision] [--force] [--list]
+  outcrop agent install-libs
   outcrop agent disable
   outcrop agent status
-  outcrop agent test <url> [<title>]
+  outcrop agent test [--timeout MS] <url> [<title>]
+
+  outcrop training-data enable
+  outcrop training-data disable
+  outcrop training-data status
+  outcrop training-data clear [--yes]
 
   outcrop config show [--show-token]
   outcrop config path

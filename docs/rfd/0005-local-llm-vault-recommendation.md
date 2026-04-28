@@ -1,7 +1,7 @@
 ---
 rfd: 0005
 title: Local-LLM Vault Recommendation
-status: accepted
+status: committed
 created: 2026-04-27
 authors:
   - gdey
@@ -604,6 +604,7 @@ Each item here has been spun out to its own `ideation` RFD that captures the top
 - 2026-04-27 — Settled open decision #1: in-process kronk is the long-term default; HTTP lands first as the implementation-order choice (simpler to test, validates the merge logic before libllama discovery work). Default `agent_backend` is `"http"` between steps 3 and 5 of the build order, then flips to `"kronk"` at step 5.
 - 2026-04-27 — Added Auto-route mode (opt-in, capture-time): a synthetic "Auto" entry in the vault picker that delegates the routing decision to the LLM with full context (image + notes + URL + title). New `Refiner` interface alongside `Suggester`; `POST /clip` request adds an `autoRoute` bool, response adds `vaultKey` / `vaultName` / `autoRouted`. New build-order step 6 covers the wire change and the extension UI; step 7 (was 6) is now docs. New open decisions #6 (vision-capability detection) and #7 (how the extension learns the agent is enabled).
 - 2026-04-27 — Refined Auto-route fallback to a three-tier chain: Refiner → default vault → Scorer-ranking ("the popup's top entry"). Removed the `auto_route_no_default` 400 path: with no default vault configured, fall through to the Scorer instead of erroring. The fallback never errors as long as at least one vault exists. `AutoRouter` now holds a reference to the configured `Scorer` for tier 3.
+- 2026-04-27 — Steps 1–6 + capture portion of RFD 0011 shipped. Promoted `accepted` → `committed`. **Auto-route deferred** based on smoke-test experience — the pre-clip ranker on a competent model is doing the heavy lifting, and the simpler design (manual override of the popup pill) preserves a much cleaner training signal for fine-tuning (RFD 0011): every clip is a clean `(input → chosen vault)` pair, with no Auto-mode muddying "what the user would have picked." The Refiner / AutoRouter / extension Auto entry / `POST /clip` `autoRoute` field / `GET /vaults` shape change all stay as designed in this RFD for a future revisit if user evidence flips. RFD 0001 status note added pointing at this RFD as the now-implemented agent contract.
 - 2026-04-27 — Steps 1–5 of the build order shipped. Promoted `draft` → `accepted`. What landed:
   - Step 1: `agent/` package, `Scorer` interface, `HistoryScorer`. Pure refactor.
   - Step 2: migration `00002_vault_description.sql` and the `vault add --description` / `vault describe` / `vault show` CLI surface.

@@ -153,48 +153,53 @@ func TestBuildSuggestPrompt(t *testing.T) {
 	b := store.Vault{Key: "kB", DisplayName: "Work Notes"} // no description
 	c := store.Vault{Key: "kC", DisplayName: "Recipes", Description: "cooking, food"}
 
-	t.Run("default rendered when set and present in vaults", func(t *testing.T) {
-		system, user := BuildSuggestPrompt(
+	t.Run("default rendered as inline fallback instruction", func(t *testing.T) {
+		_, user := BuildSuggestPrompt(
 			Input{URL: "https://example.com/sourdough", Title: "How to make sourdough", DefaultKey: "kA"},
 			[]store.Vault{a, b, c},
 		)
-		for _, want := range []string{"UNSURE", `"Default notebook"`} {
-			if !strings.Contains(system, want) {
-				t.Errorf("system prompt missing %q\n--- system ---\n%s", want, system)
-			}
-		}
 		for _, want := range []string{
 			"URL: https://example.com/sourdough",
 			"Title: How to make sourdough",
-			"Default notebook: Personal",
 			"- Personal — journaling, life admin",
 			"- Work Notes\n", // bare-name path: no em-dash
 			"- Recipes — cooking, food",
+			"reply with Personal",
+			"Reply UNSURE only if",
 			"Best match:",
 		} {
 			if !strings.Contains(user, want) {
 				t.Errorf("user prompt missing %q\n--- prompt ---\n%s", want, user)
 			}
 		}
+		if strings.Contains(user, "Default notebook") {
+			t.Errorf("user prompt should not include the meta-label 'Default notebook':\n%s", user)
+		}
 	})
 
-	t.Run("no default key → no Default notebook line", func(t *testing.T) {
+	t.Run("no default key → bare UNSURE instruction", func(t *testing.T) {
 		_, user := BuildSuggestPrompt(
 			Input{URL: "https://example.com/sourdough"},
 			[]store.Vault{a, b, c},
 		)
-		if strings.Contains(user, "Default notebook") {
-			t.Errorf("expected no Default notebook line:\n%s", user)
+		if !strings.Contains(user, "reply UNSURE") {
+			t.Errorf("expected bare UNSURE fallback when no default:\n%s", user)
+		}
+		if strings.Contains(user, "reply with") {
+			t.Errorf("expected no concrete fallback name when no default:\n%s", user)
 		}
 	})
 
-	t.Run("unknown default key → no Default notebook line", func(t *testing.T) {
+	t.Run("unknown default key → bare UNSURE instruction", func(t *testing.T) {
 		_, user := BuildSuggestPrompt(
 			Input{URL: "https://example.com/sourdough", DefaultKey: "k-deleted"},
 			[]store.Vault{a, b, c},
 		)
-		if strings.Contains(user, "Default notebook") {
-			t.Errorf("expected no Default notebook line for unknown key:\n%s", user)
+		if !strings.Contains(user, "reply UNSURE") {
+			t.Errorf("expected bare UNSURE fallback for unknown default key:\n%s", user)
+		}
+		if strings.Contains(user, "reply with") {
+			t.Errorf("expected no concrete fallback name for unknown default key:\n%s", user)
 		}
 	})
 }
