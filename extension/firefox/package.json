@@ -1,6 +1,6 @@
 {
   "name": "outcrop-firefox",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Outcrop Firefox extension — clip a region of a webpage into an Obsidian vault.",
   "private": true,
   "type": "module",

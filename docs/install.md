@@ -137,12 +137,12 @@ What it does, per OS:
 
 ### macOS
 
-Writes `~/Library/LaunchAgents/com.gdey.outcrop.plist` (a launchd plist) and registers it via `launchctl bootstrap gui/<your-uid>`.
+Writes `~/Library/LaunchAgents/me.gdey.outcrop.plist` (a launchd plist) and registers it via `launchctl bootstrap gui/<your-uid>`.
 
 - Logs go to `~/Library/Logs/outcrop/outcrop.{out,err}.log`.
 - The service auto-restarts on crash (`KeepAlive: true`).
 
-If you'd rather do it by hand, the plist is human-readable; see `Library/LaunchAgents/com.gdey.outcrop.plist` after running install-service to learn the shape.
+If you'd rather do it by hand, the plist is human-readable; see `Library/LaunchAgents/me.gdey.outcrop.plist` after running install-service to learn the shape.
 
 ### Linux
 

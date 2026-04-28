@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const darwinServiceLabel = "com.gdey.outcrop"
+const darwinServiceLabel = "me.gdey.outcrop"
 
 func darwinPaths() (plistPath, logDir string, err error) {
 	home, err := os.UserHomeDir()

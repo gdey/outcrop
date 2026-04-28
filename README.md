@@ -25,6 +25,8 @@ The full design is in [`docs/rfd/`](docs/rfd/). The README in that directory exp
 
 ## Status
 
+Implemented and shipping:
+
 | Component | Status | RFD |
 |---|---|---|
 | Architecture overview | `discussion` | [0001](docs/rfd/0001-architecture-overview.md) |
@@ -32,7 +34,19 @@ The full design is in [`docs/rfd/`](docs/rfd/). The README in that directory exp
 | Firefox extension | `draft` | [0004](docs/rfd/0004-firefox-extension.md) |
 | Local-LLM vault routing (in-process kronk) | `committed` | [0005](docs/rfd/0005-local-llm-vault-recommendation.md) |
 | Training-data capture | `accepted` (capture-only; export deferred) | [0011](docs/rfd/0011-training-data-capture.md) |
-| Click-element capture (post-v1) | `ideation` | [0002](docs/rfd/0002-click-element-capture.md) |
+| Live config reload (fingerprint-on-every-request) | `committed` | [0012](docs/rfd/0012-live-config-reload.md) |
+
+Exploratory / not yet implemented:
+
+| Component | Status | RFD |
+|---|---|---|
+| Click-element capture | `ideation` | [0002](docs/rfd/0002-click-element-capture.md) |
+| Agent capabilities and status | `ideation` | [0006](docs/rfd/0006-agent-capabilities-and-status.md) |
+| Capture-time enrichment | `ideation` | [0007](docs/rfd/0007-capture-time-enrichment.md) |
+| Embedding-based vault routing | `ideation` | [0008](docs/rfd/0008-embedding-based-vault-routing.md) |
+| Embedding-based clip retrieval | `ideation` | [0009](docs/rfd/0009-embedding-based-clip-retrieval.md) |
+| Multi-shot / agentic flows | `ideation` | [0010](docs/rfd/0010-multi-shot-agentic-flows.md) |
+| Config / analytics DB split | `ideation` | [0013](docs/rfd/0013-config-analytics-db-split.md) |
 
 ## Server
 
