@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/gdey/outcrop/agent"
 	"github.com/gdey/outcrop/server"
 	"github.com/gdey/outcrop/store"
 )
@@ -50,9 +51,12 @@ func CmdServe(args []string) error {
 		}
 	}
 
-	scorer := buildScorer(ctx, st, log)
-
-	srv, err := server.New(st, log, token, addr, scorer)
+	// Pass the Scorer factory rather than a Scorer instance: the server
+	// calls it on each /vaults to detect config changes and refresh
+	// without a restart (RFD 0012).
+	srv, err := server.New(st, log, token, addr, func(c context.Context) (agent.Scorer, string) {
+		return buildScorer(c, st, log)
+	})
 	if err != nil {
 		return err
 	}

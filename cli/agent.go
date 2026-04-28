@@ -153,7 +153,7 @@ func cmdAgentEnable(args []string) error {
 			fmt.Fprintf(os.Stdout, "\nWARNING: %s is not a loopback address. Enabling the agent against a non-local\nendpoint sends URL, title, and vault names to a remote service.\n", *endpoint)
 		}
 	}
-	fmt.Fprintln(os.Stdout, "\nRestart `outcrop serve` to pick up the new config.")
+	fmt.Fprintln(os.Stdout, "\nA running `outcrop serve` will pick this up on the next /vaults request — no restart needed.")
 	return nil
 }
 
@@ -247,7 +247,7 @@ func cmdAgentDisable(args []string) error {
 	if err := st.SetMeta(context.Background(), store.MetaAgentEnabled, "false"); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stdout, "Agent disabled. Restart `outcrop serve` to drop the LLM scorer.")
+	fmt.Fprintln(os.Stdout, "Agent disabled. A running `outcrop serve` will drop the LLM scorer on the next /vaults request — no restart needed.")
 	return nil
 }
 
@@ -494,37 +494,61 @@ func buildSuggester(cfg agentConfig) (agent.Suggester, error) {
 	}
 }
 
-// buildScorer assembles the Scorer that `outcrop serve` passes to server.New.
-// When the agent is disabled or misconfigured, falls back to history-only.
-func buildScorer(ctx context.Context, st *store.Store, log *slog.Logger) agent.Scorer {
+// buildScorer assembles the Scorer that `outcrop serve` invokes on each
+// /vaults call (RFD 0012). Returns the scorer and a fingerprint of the
+// agent config keys it was built from; the server caches the scorer keyed
+// by that fingerprint and only rebuilds when the fingerprint changes.
+//
+// Cheap to call: just reads seven meta keys and constructs structs. The
+// expensive work (kronk model load, http connection setup) is lazy inside
+// the Suggester implementations, so calling buildScorer on every /vaults
+// is fine — the cached Scorer keeps the loaded model warm; a freshly built
+// duplicate gets discarded by the cache when the fingerprint matched.
+//
+// Side-effect-free: warnings for unreadable config / unbuildable suggester
+// are intentionally silent (return history-only). The server logs the
+// fingerprint change and the user can `outcrop agent status` to see why
+// the scorer didn't take.
+func buildScorer(ctx context.Context, st *store.Store, log *slog.Logger) (agent.Scorer, string) {
 	history := agent.HistoryScorer{History: st, Log: log}
 
 	cfg, err := readAgentConfig(ctx, st)
 	if err != nil {
+		// Surface the error once; the server caches by fingerprint so this
+		// won't spam.
 		log.Warn("read agent config; falling back to history-only", "err", err)
-		return history
+		return history, "history|read-error"
 	}
+
+	fp := agentConfigFingerprint(cfg)
+
 	if !cfg.enabled {
-		return history
+		return history, fp
 	}
 
 	sug, err := buildSuggester(cfg)
 	if err != nil {
 		log.Warn("build agent suggester; falling back to history-only", "err", err)
-		return history
+		// Distinct fingerprint so the server logs the fall-through once,
+		// not on every request.
+		return history, fp + "|suggester-error"
 	}
 
-	log.Info("agent enabled",
-		"backend", cfg.backend,
-		"model", cfg.model,
-		"endpoint", cfg.endpoint,
-		"timeout_ms", cfg.timeoutMs)
 	return agent.LLMScorer{
 		Inner:     history,
 		Suggester: sug,
 		Timeout:   time.Duration(cfg.timeoutMs) * time.Millisecond,
 		Log:       log,
-	}
+	}, fp
+}
+
+// agentConfigFingerprint produces a stable string that changes iff any of
+// the seven agent meta keys change. Used by the server's Scorer cache (RFD
+// 0012); not cryptographic — collision-resistant within the small space of
+// realistic config values.
+func agentConfigFingerprint(cfg agentConfig) string {
+	return fmt.Sprintf("v1|enabled=%v|backend=%s|modelPath=%s|endpoint=%s|model=%s|apiKey-set=%v|timeoutMs=%d",
+		cfg.enabled, cfg.backend, cfg.modelPath, cfg.endpoint, cfg.model, cfg.apiKey != "", cfg.timeoutMs)
 }
 
 func or(s, fallback string) string {

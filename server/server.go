@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gdey/outcrop/agent"
@@ -18,35 +19,108 @@ import (
 // Server holds the configuration and dependencies for the running HTTP
 // server. Instantiate with New and run with Serve.
 type Server struct {
-	store  *store.Store
-	log    *slog.Logger
-	token  string
-	addr   string
-	scorer agent.Scorer
+	store *store.Store
+	log   *slog.Logger
+	token string
+	addr  string
+
+	// buildScorer is the CLI-supplied factory called on each /vaults to
+	// produce (scorer, fingerprint). The server caches the most recent
+	// (fingerprint, scorer) pair and reuses the cached scorer when the
+	// returned fingerprint matches. RFD 0012.
+	buildScorer func(ctx context.Context) (agent.Scorer, string)
+
+	cacheMu      sync.Mutex
+	cachedFp     string
+	cachedScorer agent.Scorer
+}
+
+// closer is satisfied by Scorers that hold expensive resources (e.g.
+// KronkSuggester's loaded GGUF model) and need a graceful release when
+// they're swapped out by a config change.
+type closer interface {
+	Close(ctx context.Context) error
 }
 
 // New constructs a Server. The token must be non-empty; the address must
-// resolve to a loopback IP. If scorer is nil, a default history-based scorer
-// is constructed (RFD 0003 behaviour). LLM-augmented scorers (RFD 0005) are
-// built by the CLI and passed in here.
-func New(st *store.Store, log *slog.Logger, token, addr string, scorer agent.Scorer) (*Server, error) {
+// resolve to a loopback IP. buildScorer is the factory the server calls on
+// each /vaults to derive the current Scorer (RFD 0012). If nil, a default
+// history-based factory is used.
+func New(
+	st *store.Store,
+	log *slog.Logger,
+	token, addr string,
+	buildScorer func(ctx context.Context) (agent.Scorer, string),
+) (*Server, error) {
 	if token == "" {
 		return nil, fmt.Errorf("token is empty")
 	}
 	if err := validateLoopback(addr); err != nil {
 		return nil, err
 	}
-	if scorer == nil {
-		scorer = agent.HistoryScorer{History: st, Log: log}
+	if buildScorer == nil {
+		buildScorer = func(_ context.Context) (agent.Scorer, string) {
+			return agent.HistoryScorer{History: st, Log: log}, "default-history"
+		}
 	}
 	return &Server{
-		store:  st,
-		log:    log,
-		token:  token,
-		addr:   addr,
-		scorer: scorer,
+		store:       st,
+		log:         log,
+		token:       token,
+		addr:        addr,
+		buildScorer: buildScorer,
 	}, nil
 }
+
+// currentScorer returns the cached Scorer when the buildScorer-supplied
+// fingerprint matches the last seen one, or builds + caches a new one when
+// it changed. Old Scorers that satisfy `closer` are released after a grace
+// period so an in-flight /vaults using the previous Scorer doesn't get the
+// rug pulled. RFD 0012.
+func (s *Server) currentScorer(ctx context.Context) agent.Scorer {
+	newScorer, fp := s.buildScorer(ctx)
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	if s.cachedScorer != nil && fp == s.cachedFp {
+		return s.cachedScorer
+	}
+
+	if s.cachedScorer != nil {
+		s.log.Info("agent config changed, rebuilding scorer",
+			"old_fingerprint", s.cachedFp,
+			"new_fingerprint", fp)
+		s.scheduleClose(s.cachedScorer)
+	} else {
+		s.log.Info("agent scorer initialised", "fingerprint", fp)
+	}
+	s.cachedScorer = newScorer
+	s.cachedFp = fp
+	return newScorer
+}
+
+// scheduleClose runs Close on a Scorer in a goroutine after a short grace
+// period so any in-flight handler still using it can complete. The agent's
+// per-call timeout is on the order of 1 s; 5 s gives ample margin.
+func (s *Server) scheduleClose(sc agent.Scorer) {
+	c, ok := sc.(closer)
+	if !ok {
+		return
+	}
+	go func() {
+		time.Sleep(scorerCloseGrace)
+		if err := c.Close(context.Background()); err != nil {
+			s.log.Warn("close superseded scorer", "err", err)
+		}
+	}()
+}
+
+// scorerCloseGrace is the delay between a config-driven scorer swap and
+// closing the previous scorer. Generous on purpose — the cost of waiting
+// is briefly holding the model in memory; the cost of closing too soon is
+// an in-flight /vaults call hitting a closed model. Overridable for tests.
+var scorerCloseGrace = 5 * time.Second
 
 // Serve runs the HTTP server until ctx is cancelled or the listener fails.
 func (s *Server) Serve(ctx context.Context) error {

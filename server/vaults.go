@@ -31,7 +31,7 @@ func (s *Server) handleListVaults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ranked := s.scorer.Score(ctx, agent.Input{
+	ranked := s.currentScorer(ctx).Score(ctx, agent.Input{
 		URL:        r.URL.Query().Get("url"),
 		Title:      r.URL.Query().Get("title"),
 		DefaultKey: defaultKey,
