@@ -1,6 +1,6 @@
 {
   "name": "outcrop-chrome",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Outcrop Chrome extension — clip a region of a webpage into a markdown-notes folder.",
   "private": true,
   "type": "module",
