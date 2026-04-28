@@ -1,0 +1,644 @@
+package model
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/ardanlabs/kronk/sdk/kronk/observ/metrics"
+	"github.com/ardanlabs/kronk/sdk/kronk/observ/otel"
+	"github.com/google/uuid"
+	"github.com/hybridgroup/yzma/pkg/mtmd"
+	"go.opentelemetry.io/otel/attribute"
+)
+
+const streamChBuffer = 32
+
+// Chat performs a chat request and returns the final response.
+// All requests (including vision/audio) use batch processing and can run
+// concurrently based on the NSeqMax config value, which controls parallel
+// sequence processing.
+func (m *Model) Chat(ctx context.Context, d D) (ChatResponse, error) {
+	ch := m.ChatStreaming(ctx, d)
+
+	var lastMsg ChatResponse
+	for msg := range ch {
+		lastMsg = msg
+	}
+
+	// If the response is an error, extract the error message from Delta
+	// (where ChatResponseErr stores it) and return it as a Go error.
+	if len(lastMsg.Choices) > 0 && lastMsg.Choices[0].FinishReason() == FinishReasonError {
+		errMsg := "unknown error"
+		if lastMsg.Choices[0].Delta != nil && lastMsg.Choices[0].Delta.Content != "" {
+			errMsg = lastMsg.Choices[0].Delta.Content
+		}
+		return lastMsg, errors.New(errMsg)
+	}
+
+	if lastMsg.Object == ObjectChatText {
+		lastMsg.Object = ObjectChatTextFinal
+	}
+
+	if len(lastMsg.Choices) > 0 {
+		lastMsg.Choices[0].Index = 0
+		lastMsg.Choices[0].Delta = nil
+	}
+
+	return lastMsg, nil
+}
+
+// ChatStreaming performs a chat request and streams the response.
+// All requests (including vision/audio) use batch processing and can run
+// concurrently based on the NSeqMax config value, which controls parallel
+// sequence processing.
+func (m *Model) ChatStreaming(ctx context.Context, d D) <-chan ChatResponse {
+	returnCh := make(chan ChatResponse, streamChBuffer)
+	ch := m.wrapChannelForLogging(ctx, returnCh)
+
+	// Increment active streams before launching the goroutine to prevent a race
+	// where Unload sees zero active streams and frees the model before the
+	// goroutine starts executing.
+	active := m.activeStreams.Add(1)
+
+	go func() {
+		id := "chatcmpl-" + uuid.NewString()
+
+		m.log(ctx, "chat-streaming", "status", "started", "id", id, "active_streams", active)
+
+		batching := false
+
+		defer func() {
+			if rec := recover(); rec != nil {
+				m.sendChatError(ctx, ch, id, fmt.Errorf("%v", rec))
+			}
+
+			if !batching {
+				close(ch)
+				remaining := m.activeStreams.Add(-1)
+				m.log(ctx, "chat-streaming", "status", "finished", "id", id, "active_streams", remaining)
+			}
+		}()
+
+		prepCtx, prepSpan := otel.AddSpan(ctx, "prepare-request")
+
+		params, d, err := m.validateAndCloneDocument(prepCtx, d)
+		if err != nil {
+			prepSpan.End()
+			m.sendChatError(ctx, ch, id, err)
+			return
+		}
+
+		d, mtmdCtx, object, err := m.prepareContext(prepCtx, d)
+		if err != nil {
+			prepSpan.End()
+			m.sendChatError(ctx, ch, id, err)
+			return
+		}
+
+		defer func() {
+			if !batching {
+				if mtmdCtx != 0 {
+					mtmd.Free(mtmdCtx)
+				}
+
+				m.resetContext()
+			}
+		}()
+
+		requestStart := time.Now()
+
+		prompt, media, cache, err := m.prepareCacheAndPrompt(prepCtx, d, object, requestStart)
+		if err != nil {
+			prepSpan.End()
+			m.sendChatError(ctx, ch, id, err)
+			return
+		}
+
+		d = cache.modifiedD
+
+		if m.cfg.InsecureLogging() {
+			m.log(ctx, "chat-streaming", "IN-MESSAGES", d.Messages())
+		}
+
+		prepSpan.End()
+
+		if m.submitToBatchEngine(ctx, ch, id, d, object, prompt, media, params, mtmdCtx, cache) {
+			batching = true
+			return
+		}
+	}()
+
+	return returnCh
+}
+
+// wrapChannelForLogging wraps the response channel with logging when insecure
+// logging is enabled. Returns the channel to use for sending responses.
+func (m *Model) wrapChannelForLogging(ctx context.Context, returnCh chan ChatResponse) chan ChatResponse {
+	if !m.cfg.InsecureLogging() {
+		return returnCh
+	}
+
+	ch := make(chan ChatResponse, streamChBuffer)
+
+	go func() {
+		var srl StreamingResponseLogger
+
+		for resp := range ch {
+			srl.Capture(resp)
+
+			select {
+			case returnCh <- resp:
+			case <-ctx.Done():
+				m.log(ctx, "chat-streaming", "OUT-MESSAGES", srl.String())
+				close(returnCh)
+				return
+			}
+		}
+
+		m.log(ctx, "chat-streaming", "OUT-MESSAGES", srl.String())
+		close(returnCh)
+	}()
+
+	return ch
+}
+
+// validateAndCloneDocument clones the request document first to avoid mutating
+// the caller's map (parseParams writes back a normalized enable_thinking), then
+// validates the clone. Downstream functions (prepareTextContext,
+// gptInjectToolCallNames) use copy-on-write when they need to modify individual
+// message maps.
+func (m *Model) validateAndCloneDocument(ctx context.Context, d D) (Params, D, error) {
+	d = d.Clone()
+
+	params, err := m.validateDocument(d)
+	if err != nil {
+		return Params{}, nil, err
+	}
+
+	m.log(ctx, "chat-streaming", "FINAL-PARAMS", params.String())
+
+	return params, d, nil
+}
+
+// prepareContext prepares the document for inference, handling both text-only
+// and media (vision/audio) paths. Returns the modified document, media context,
+// and object type.
+func (m *Model) prepareContext(ctx context.Context, d D) (D, mtmd.Context, string, error) {
+	if m.projFile == "" {
+		return m.prepareTextContext(d), 0, ObjectChatText, nil
+	}
+
+	// If the model supports media but this request has no media content,
+	// treat it as text so caching (IMC) can operate.
+	mediaType, _, _, _ := detectMediaContent(d)
+
+	if mediaType == MediaTypeNone {
+		return m.prepareTextContext(d), 0, ObjectChatText, nil
+	}
+
+	d, mtmdCtx, err := m.prepareMediaContext(ctx, d)
+	if err != nil {
+		return nil, 0, ObjectChatUnknown, err
+	}
+
+	return d, mtmdCtx, ObjectChatMedia, nil
+}
+
+// prepareCacheAndPrompt handles cache processing and prompt creation. Returns
+// the prompt, media bytes, cache result, and any error.
+func (m *Model) prepareCacheAndPrompt(ctx context.Context, d D, object string, requestStart time.Time) (string, [][]byte, cacheResult, error) {
+	var cache cacheResult
+
+	// Inject tool function names into role:"tool" messages before caching.
+	// This adds "name" (for standard templates like Gemma 4) and
+	// "tool_call_name" (for GPT templates) so tool responses render correctly.
+	d = m.injectToolResponseNames(d)
+
+	// Deserialize tool call arguments from JSON strings to maps so Jinja
+	// templates can iterate over them with |items. The OpenAI API spec
+	// sends arguments as JSON-encoded strings, but templates like Qwen3
+	// need them as mappings to render prior tool calls correctly.
+	d = deserializeToolCallArguments(d)
+
+	// IMC caches through media messages using the mtmd pipeline —
+	// images and audio remain in the KV cache across requests.
+	cachingEnabled := m.cfg.IncrementalCache() && (object == ObjectChatText || (object == ObjectChatMedia && m.projFile != ""))
+
+	switch {
+	case !cachingEnabled:
+		cache.modifiedD = d
+
+	default:
+		ctx, cacheSpan := otel.AddSpan(ctx, "process-cache")
+
+		cache = m.processCache(ctx, d, requestStart)
+
+		cacheSpan.End()
+
+		if cache.err != nil {
+			return "", nil, cache, cache.err
+		}
+
+		d = cache.modifiedD
+	}
+
+	prompt, media, err := m.createPrompt(ctx, d)
+	if err != nil {
+		return "", nil, cache, fmt.Errorf("chat-streaming: unable to apply jinja template: %w", err)
+	}
+
+	return prompt, media, cache, nil
+}
+
+// submitToBatchEngine attempts to submit the request to the batch engine.
+// Returns true if the job was submitted (caller should set batching=true),
+// false if batch engine is not available or not applicable.
+func (m *Model) submitToBatchEngine(ctx context.Context, ch chan ChatResponse, id string, d D, object string, prompt string, media [][]byte, params Params, mtmdCtx mtmd.Context, cache cacheResult) bool {
+	imcCacheHit := m.cfg.IncrementalCache() && (cache.cacheIdx > 0 || len(cache.imcNewCacheTokens) > 0 || cache.imcMediaBuild)
+
+	_, queueSpan := otel.AddSpan(ctx, "queue-wait")
+
+	job := chatJob{
+		id:            id,
+		ctx:           ctx,
+		queueWaitSpan: queueSpan,
+		queuedAt:      time.Now(),
+		d:             d,
+		object:        object,
+		prompt:        prompt,
+		media:         media,
+		params:        params,
+		mtmdCtx:       mtmdCtx,
+		ch:            ch,
+
+		imcSession:      cache.imcSession,
+		imcSessionMedia: cache.imcSession != nil && (cache.imcSession.hasMedia || cache.imcMediaBuild),
+		imcSlotID:       cache.imcSlotID,
+		imcCacheHit:     imcCacheHit,
+		imcExpectedHash: cache.imcExpectedHash,
+
+		imcNewCacheTokens:      cache.imcNewCacheTokens,
+		imcNewTotalCached:      cache.imcNewTotalCached,
+		imcNewCachedMsgCount:   cache.imcNewCachedMsgCount,
+		imcNewMsgsHash:         cache.imcNewMsgsHash,
+		imcClearSeq:            cache.imcClearSeq,
+		imcNewCachedTokens:     cache.imcNewCachedTokens,
+		imcTrimPos:             cache.imcTrimPos,
+		imcSysPromptHash:       cache.imcSysPromptHash,
+		imcSysPromptTokens:     cache.imcSysPromptTokens,
+		imcMediaBuild:          cache.imcMediaBuild,
+		imcMediaCacheD:         cache.imcMediaCacheD,
+		imcMediaKVCounts:       cache.imcMediaKVCounts,
+		imcMediaSkipTextTokens: cache.imcMediaSkipTextTokens,
+	}
+
+	if err := m.batch.submit(&job); err != nil {
+		queueSpan.End()
+
+		// Clear IMC pending reservation if this job reserved a slot.
+		// pending is set during extendIMCCache/buildIMCCacheFromScratch
+		// and normally cleared in startSlot after decode.
+		if len(cache.imcNewCacheTokens) > 0 || cache.imcMediaBuild {
+			m.imcClearPending(cache.imcSlotID)
+		}
+
+		m.sendChatError(ctx, ch, id, err)
+		return false
+	}
+
+	return true
+}
+
+// prepareTextContext converts messages using the OpenAI array format
+// for content ([]D with type:"text") to simple string content. This is used
+// for text-only inference paths. Uses copy-on-write: only allocates a new
+// messages slice and message maps when array-format content is found.
+func (*Model) prepareTextContext(d D) D {
+	messages, ok := d["messages"].([]D)
+	if !ok {
+		return d
+	}
+
+	var copied bool
+	for i, msg := range messages {
+		content, ok := msg["content"].([]D)
+		if !ok {
+			continue
+		}
+
+		var text strings.Builder
+		for _, part := range content {
+			if part["type"] == "text" {
+				if s, ok := part["text"].(string); ok {
+					text.WriteString(s)
+				}
+			}
+		}
+
+		if text.Len() > 0 {
+			if !copied {
+				newMsgs := make([]D, len(messages))
+				copy(newMsgs, messages)
+				messages = newMsgs
+				d["messages"] = messages
+				copied = true
+			}
+
+			newMsg := msg.ShallowClone()
+			newMsg["content"] = text.String()
+			messages[i] = newMsg
+		}
+	}
+
+	return d
+}
+
+func (m *Model) prepareMediaContext(ctx context.Context, d D) (D, mtmd.Context, error) {
+	mediaType, isOpenAIFormat, msgs, err := detectMediaContent(d)
+	if err != nil {
+		return nil, 0, fmt.Errorf("prepare-media-context: %w", err)
+	}
+
+	if mediaType != MediaTypeNone && m.projFile == "" {
+		return nil, 0, fmt.Errorf("prepare-media-context: media detected in request but model does not support media processing")
+	}
+
+	var mtmdCtx mtmd.Context
+
+	mtmdCtx, err = m.loadProjFile(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("prepare-media-context: unable to init projection: %w", err)
+	}
+
+	switch mediaType {
+	case MediaTypeVision:
+		if !mtmd.SupportVision(mtmdCtx) {
+			mtmd.Free(mtmdCtx)
+			return nil, 0, fmt.Errorf("prepare-media-context: image/video detected but model does not support vision")
+		}
+
+	case MediaTypeAudio:
+		if !mtmd.SupportAudio(mtmdCtx) {
+			mtmd.Free(mtmdCtx)
+			return nil, 0, fmt.Errorf("prepare-media-context: audio detected but model does not support audio")
+		}
+	}
+
+	switch {
+	case isOpenAIFormat:
+		d, err = toMediaMessage(d, msgs)
+		if err != nil {
+			return nil, 0, fmt.Errorf("prepare-media-context: unable to convert document to media message: %w", err)
+		}
+
+	case mediaType != MediaTypeNone:
+		d = convertPlainBase64ToBytes(d)
+	}
+
+	return d, mtmdCtx, nil
+}
+
+func (m *Model) loadProjFile(ctx context.Context) (mtmd.Context, error) {
+	baseProjFile := path.Base(m.projFile)
+
+	m.log(context.Background(), "loading-prof-file", "status", "started", "proj", baseProjFile)
+	defer m.log(context.Background(), "loading-prof-file", "status", "completed", "proj", baseProjFile)
+
+	_, span := otel.AddSpan(ctx, "proj-file-load-time",
+		attribute.String("proj-file", baseProjFile),
+	)
+	defer span.End()
+
+	start := time.Now()
+	defer func() {
+		metrics.AddProjFileLoadTime(m.modelInfo.ID, time.Since(start))
+	}()
+
+	mtmdCtx, err := mtmd.InitFromFile(m.projFile, m.model, mtmd.ContextParamsDefault())
+	if err != nil {
+		return 0, err
+	}
+
+	return mtmdCtx, nil
+}
+
+func (m *Model) createPrompt(ctx context.Context, d D) (string, [][]byte, error) {
+	ctx, span := otel.AddSpan(ctx, "create-prompt")
+	defer span.End()
+
+	start := time.Now()
+	defer func() {
+		metrics.AddPromptCreationTime(m.modelInfo.ID, time.Since(start))
+	}()
+
+	prompt, media, err := m.applyRequestJinjaTemplate(ctx, d)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return prompt, media, nil
+}
+
+// injectToolResponseNames adds the tool function name to role:"tool" messages
+// by matching tool_call_id against preceding assistant tool_calls. It injects
+// "name" (used by standard templates like Gemma 4) and "tool_call_name" (used
+// by GPT templates). Existing values are not overwritten.
+func (m *Model) injectToolResponseNames(d D) D {
+	messages, ok := d["messages"].([]D)
+	if !ok {
+		return d
+	}
+
+	// Build a map of tool_call_id -> function name from assistant messages.
+	toolCallIDToName := make(map[string]string)
+
+	for _, msg := range messages {
+		role, _ := msg["role"].(string)
+		if role != "assistant" {
+			continue
+		}
+
+		toolCalls, ok := msg["tool_calls"].([]D)
+		if !ok {
+			continue
+		}
+
+		for _, tcMap := range toolCalls {
+			id, _ := tcMap["id"].(string)
+			if id == "" {
+				continue
+			}
+
+			fn, ok := tcMap["function"].(D)
+			if !ok {
+				continue
+			}
+
+			name, _ := fn["name"].(string)
+			if name != "" {
+				toolCallIDToName[id] = name
+			}
+		}
+	}
+
+	if len(toolCallIDToName) == 0 {
+		return d
+	}
+
+	// Inject names into tool response messages using copy-on-write.
+	var copied bool
+	for i, msg := range messages {
+		role, _ := msg["role"].(string)
+		if role != "tool" {
+			continue
+		}
+
+		toolCallID, _ := msg["tool_call_id"].(string)
+		if toolCallID == "" {
+			continue
+		}
+
+		name, exists := toolCallIDToName[toolCallID]
+		if !exists {
+			continue
+		}
+
+		existingName, _ := msg["name"].(string)
+		existingTCName, _ := msg["tool_call_name"].(string)
+
+		if existingName != "" && existingTCName != "" {
+			continue
+		}
+
+		if !copied {
+			newMsgs := make([]D, len(messages))
+			copy(newMsgs, messages)
+			messages = newMsgs
+			d["messages"] = messages
+			copied = true
+		}
+
+		newMsg := msg.ShallowClone()
+
+		if existingName == "" {
+			newMsg["name"] = name
+		}
+		if existingTCName == "" {
+			newMsg["tool_call_name"] = name
+		}
+
+		messages[i] = newMsg
+	}
+
+	return d
+}
+
+// deserializeToolCallArguments converts JSON-string arguments in assistant
+// tool_calls to maps so Jinja templates can iterate them with |items.
+func deserializeToolCallArguments(d D) D {
+	messages, ok := d["messages"].([]D)
+	if !ok {
+		return d
+	}
+
+	var copied bool
+	for i, msg := range messages {
+		role, _ := msg["role"].(string)
+		if role != "assistant" {
+			continue
+		}
+
+		toolCalls, ok := msg["tool_calls"].([]D)
+		if !ok {
+			continue
+		}
+
+		for j, tc := range toolCalls {
+			fn, ok := tc["function"].(D)
+			if !ok {
+				continue
+			}
+
+			argsStr, ok := fn["arguments"].(string)
+			if !ok {
+				continue
+			}
+
+			var argsMap map[string]any
+			if err := json.Unmarshal([]byte(argsStr), &argsMap); err != nil {
+				continue
+			}
+
+			if !copied {
+				newMsgs := make([]D, len(messages))
+				copy(newMsgs, messages)
+				messages = newMsgs
+				d["messages"] = messages
+				copied = true
+			}
+
+			newFn := fn.ShallowClone()
+			newFn["arguments"] = argsMap
+
+			newTC := tc.ShallowClone()
+			newTC["function"] = newFn
+
+			newTCs := make([]D, len(toolCalls))
+			copy(newTCs, toolCalls)
+			newTCs[j] = newTC
+
+			newMsg := msg.ShallowClone()
+			newMsg["tool_calls"] = newTCs
+
+			messages[i] = newMsg
+			msg = newMsg
+			toolCalls = newTCs
+		}
+	}
+
+	return d
+}
+
+func (m *Model) validateDocument(d D) (Params, error) {
+	messages, exists := d["messages"]
+	if !exists {
+		return Params{}, errors.New("validate-document: no messages found in request")
+	}
+
+	if _, ok := messages.([]D); !ok {
+		return Params{}, errors.New("validate-document: messages is not a slice of documents")
+	}
+
+	p, err := m.parseParams(d)
+	if err != nil {
+		return Params{}, err
+	}
+
+	return p, nil
+}
+
+func (m *Model) sendChatError(ctx context.Context, ch chan<- ChatResponse, id string, err error) {
+	m.log(ctx, "send-chat-error", "ERROR", err.Error(), "id", id)
+
+	// I want to try and send this message before we check the context.
+	select {
+	case ch <- ChatResponseErr(id, ObjectChatUnknown, m.modelInfo.ID, 0, "", err, Usage{}):
+		return
+	default:
+	}
+
+	select {
+	case <-ctx.Done():
+		select {
+		case ch <- ChatResponseErr(id, ObjectChatUnknown, m.modelInfo.ID, 0, "", ctx.Err(), Usage{}):
+		default:
+		}
+
+	case ch <- ChatResponseErr(id, ObjectChatUnknown, m.modelInfo.ID, 0, "", err, Usage{}):
+	}
+}
