@@ -12,7 +12,7 @@
     "build": "node esbuild.config.mjs && node scripts/copy-static.mjs",
     "dev": "node esbuild.config.mjs --watch & web-ext run --source-dir=dist",
     "package": "npm run check && npm run build && web-ext build --source-dir=dist --artifacts-dir=dist-artifacts --overwrite-dest --filename=outcrop-{version}_firefox.zip",
-    "sign": "web-ext sign --source-dir=dist --artifacts-dir=dist-artifacts --channel=unlisted --filename=outcrop-{version}_firefox.xpi"
+    "sign": "web-ext sign --source-dir=dist --artifacts-dir=dist-artifacts --channel=unlisted && node scripts/rename-signed-xpi.mjs"
   },
   "devDependencies": {
     "@types/firefox-webext-browser": "^120.0.4",
