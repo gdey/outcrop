@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -19,10 +20,11 @@ import (
 // Server holds the configuration and dependencies for the running HTTP
 // server. Instantiate with New and run with Serve.
 type Server struct {
-	store *store.Store
-	log   *slog.Logger
-	token string
-	addr  string
+	store        *store.Store
+	log          *slog.Logger
+	token        string
+	addr         string
+	runningSince time.Time
 
 	// buildScorer is the CLI-supplied factory called on each /vaults to
 	// produce (scorer, fingerprint). The server caches the most recent
@@ -64,11 +66,12 @@ func New(
 		}
 	}
 	return &Server{
-		store:       st,
-		log:         log,
-		token:       token,
-		addr:        addr,
-		buildScorer: buildScorer,
+		store:        st,
+		log:          log,
+		token:        token,
+		addr:         addr,
+		runningSince: time.Now(),
+		buildScorer:  buildScorer,
 	}, nil
 }
 
@@ -122,7 +125,8 @@ func (s *Server) scheduleClose(sc agent.Scorer) {
 // an in-flight /vaults call hitting a closed model. Overridable for tests.
 var scorerCloseGrace = 5 * time.Second
 
-// Serve runs the HTTP server until ctx is cancelled or the listener fails.
+// Serve runs the HTTP server (network) and the IPC server (Unix socket)
+// concurrently until ctx is cancelled or either listener fails.
 func (s *Server) Serve(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", http.HandlerFunc(s.handleHealth))
@@ -149,31 +153,72 @@ func (s *Server) Serve(ctx context.Context) error {
 	}))
 	root.Handle("/", wrapped)
 
-	srv := &http.Server{
+	httpSrv := &http.Server{
 		Addr:              s.addr,
 		Handler:           wrapped,
 		ReadHeaderTimeout: 10 * time.Second,
 		// No global write timeout — POST /clip may carry a sizable image.
 	}
 
-	listenErrCh := make(chan error, 1)
+	// IPC transport (RFD 0014 §2). Carries a strict superset of the network
+	// routes plus the privileged surface that's not bound to any TCP port.
+	// Failure to bring up IPC is non-fatal — the server still serves the
+	// extension over HTTP — but is logged loudly so the tray's failure to
+	// connect later is debuggable.
+	ipcListener, ipcPath, ipcErr := listenIPC()
+	if ipcErr != nil {
+		s.log.Warn("IPC listener failed to start; tray and `outcrop status` won't work",
+			"err", ipcErr)
+	}
+	var ipcSrv *http.Server
+	if ipcListener != nil {
+		ipcSrv = &http.Server{
+			Handler:           s.ipcMux(),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+	}
+
+	listenErrCh := make(chan error, 2)
 	go func() {
 		s.log.Info("listening", "addr", s.addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			listenErrCh <- err
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			listenErrCh <- fmt.Errorf("http listener: %w", err)
 			return
 		}
 		listenErrCh <- nil
 	}()
+	if ipcSrv != nil {
+		go func() {
+			s.log.Info("listening (IPC)", "socket", ipcPath)
+			if err := ipcSrv.Serve(ipcListener); err != nil && err != http.ErrServerClosed {
+				listenErrCh <- fmt.Errorf("ipc listener: %w", err)
+				return
+			}
+			listenErrCh <- nil
+		}()
+	}
 
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("shutdown: %w", err)
+		var firstErr error
+		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+			firstErr = fmt.Errorf("http shutdown: %w", err)
 		}
-		return nil
+		if ipcSrv != nil {
+			if err := ipcSrv.Shutdown(shutdownCtx); err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("ipc shutdown: %w", err)
+			}
+		}
+		// net.Listen("unix") doesn't auto-remove the socket file. The next
+		// startup detects it as stale and cleans up, but tidy-on-clean-exit
+		// avoids that one log line and matches what the install-service
+		// uninstall flow expects.
+		if ipcPath != "" {
+			_ = os.Remove(ipcPath)
+		}
+		return firstErr
 	case err := <-listenErrCh:
 		return err
 	}
