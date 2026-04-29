@@ -2,7 +2,7 @@
 
 Outcrop has two parts: a **local Go server** (this guide) and a **Firefox extension** (see the project's GitHub Releases for the signed `.xpi`). Both run on your machine; nothing leaves it (see [PRIVACY.md](../PRIVACY.md) for the full data-handling story).
 
-This document covers installing the **server** on macOS, Linux, and Windows, plus the optional run-on-login setup and LLM agent setup.
+This document covers installing the **server** on macOS and Linux from pre-built binaries, plus the optional run-on-login setup and LLM agent setup. Windows isn't in the release matrix today (see the note in §1) but builds from source — see `README.md`.
 
 ---
 
@@ -16,36 +16,29 @@ Pre-built binaries live on the [GitHub Releases](https://github.com/gdey/outcrop
 | macOS (Intel) | `amd64` | `outcrop_<version>_darwin_amd64.tar.gz` |
 | Linux | `arm64` | `outcrop_<version>_linux_arm64.tar.gz` |
 | Linux | `amd64` | `outcrop_<version>_linux_amd64.tar.gz` |
-| Windows | `amd64` | `outcrop_<version>_windows_amd64.zip` |
 
-Each archive contains the `outcrop` binary, `LICENSE`, `PRIVACY.md`, `README.md`, this `install.md`, and the relevant RFDs.
+Each archive contains the `outcrop` binary, `LICENSE`, `PRIVACY.md`, `README.md`, this `install.md`, and the relevant RFDs. Released binaries include the menu-bar / system-tray applet (RFD 0014) — the same `outcrop` binary serves both as `outcrop serve` and `outcrop tray`.
+
+> **Windows note:** released binaries are darwin and linux only. Windows isn't currently in the release matrix — RFD 0014 §3 has the rationale (the tray needs CGO with platform-specific Win32 bindings; we've deferred that work). The Firefox and Chrome extensions cover most clipping use cases on Windows; `outcrop` builds from source on Windows just fine for users who want the server side (see `README.md`).
 
 ### Verify the download
 
-Each release also publishes a `checksums.txt` listing SHA-256 digests for every archive.
+Each archive ships with a `<name>.tar.gz.sha256` sidecar containing its SHA-256 digest.
 
 ```sh
 # macOS / Linux
-sha256sum -c checksums.txt 2>&1 | grep OK
-```
-
-```powershell
-# Windows PowerShell
-Get-FileHash outcrop_*_windows_amd64.zip -Algorithm SHA256
-# Compare manually against checksums.txt
+shasum -a 256 -c outcrop_<version>_<os>_<arch>.tar.gz.sha256
 ```
 
 ### Place the binary
 
-After extracting, move the binary somewhere on your `PATH` so the rest of this guide's commands work:
+After extracting, move the binary somewhere on your `PATH`:
 
 | OS | Suggested path |
 |---|---|
 | macOS, Linux | `/usr/local/bin/outcrop` (system-wide) or `~/.local/bin/outcrop` (user) |
-| Windows | `%LOCALAPPDATA%\Programs\outcrop\outcrop.exe`, then add that folder to `PATH` |
 
 ```sh
-# macOS / Linux
 mkdir -p ~/.local/bin
 mv outcrop ~/.local/bin/
 chmod +x ~/.local/bin/outcrop
