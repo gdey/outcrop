@@ -117,7 +117,7 @@ The pattern: **IPC opens new capabilities, it doesn't replace existing ones.** E
 
 ### 3. Process model: separate binary, parent–child via `outcrop serve --tray`
 
-The applet is its own subcommand: `outcrop tray`. The same binary, a different `os.Args[1]`. This avoids shipping a separate `outcrop-tray` artifact and keeps the Goreleaser story unchanged.
+The applet is its own subcommand: `outcrop tray`. The same binary, a different `os.Args[1]`. `install-service` still installs only `outcrop serve` — the launchd/systemd unit doesn't need to know about the tray.
 
 `outcrop serve` gets a new flag:
 
@@ -131,9 +131,39 @@ GUI detection:
 
 - macOS: assume yes (no headless macOS server is going to run `outcrop serve --tray=auto` and care).
 - Linux: `DISPLAY != "" || WAYLAND_DISPLAY != ""`. Headless servers (no display) get nothing.
-- Windows: assume yes.
 
-When `serve` decides to spawn, it `exec.Command("outcrop", "tray")`s a child, wires stdout/stderr to its own log stream prefixed `[tray]`, and reaps on exit. If `serve` exits, it sends SIGTERM to the tray child. `install-service` still installs only `outcrop serve` — the launchd/systemd unit doesn't need to know about the tray.
+When `serve` decides to spawn, it `exec.Command(<self>, "tray")`s a child (where `<self>` is `os.Executable()` — re-using the running binary by absolute path so a tray rebuild doesn't drift from the spawning serve). It wires the child's stdout/stderr to its own log stream prefixed `[tray]`, and reaps on exit. If `serve` exits, it sends SIGTERM to the tray child.
+
+#### Build-tag gating: tray code is opt-in at compile time
+
+The tray pulls in **fyne-io/systray + fyne**, which both require **CGO** on every platform that matters (macOS Cocoa, Linux GTK + AppIndicator, Windows Win32). The server itself is intentionally CGO-free — kronk uses purego at runtime so cross-compile works without a C toolchain on the build host.
+
+To keep both properties — server stays CGO-free, tray gets the native UI it needs — the tray code is gated behind a Go build tag:
+
+```
+go build ./cmd/outcrop                  # default: server only, CGO-free,
+                                        # `outcrop tray` errors out
+go build -tags tray ./cmd/outcrop       # CGO-on, tray UI included
+```
+
+Files using fyne / systray sit under `//go:build tray`. The `outcrop tray` subcommand has a `//go:build !tray` stub that exits with code 65 and a clear "this binary was built without tray support; rebuild with `-tags tray`" message. The parent `serve --tray=auto` handler treats exit-65 as "tray not compiled in" and stops trying to spawn — the user ran a server-only build and asked for tray; we shouldn't busy-loop.
+
+#### Release-pipeline implications: per-platform CI matrix, Windows dropped
+
+Because tray-enabled builds are CGO-on, the previous "single ubuntu runner cross-compiles every target" goreleaser config no longer works. The new shape:
+
+- **Per-platform CI matrix.** `release.yml` runs goreleaser natively on `macos-latest` (for darwin/amd64 + darwin/arm64) and `ubuntu-latest` (for linux/amd64; linux/arm64 via the `ubuntu-24.04-arm` runner). Each runner builds the tray-enabled binary for its native OS, and a final job assembles all artifacts onto one GitHub release.
+- **Windows is dropped from the release** for now. The browser extension covers most Windows clipping use cases; adding the Windows tray means a third runner and Windows-specific CGO header juggling, which we'd rather defer until somebody actually asks for it.
+
+Goreleaser still drives each runner — checksums, archive naming, changelog all stay the same — but the build matrix is the workflow's job, not goreleaser's.
+
+#### Restart policy: exit-code-aware, no flag knob
+
+The behavior when the tray child exits is decided by **exit code semantics**, not by another `--tray` value:
+
+- **Exit code 0** (the user clicked "Quit Outcrop tray" from the menu) → server respects it and does *not* respawn. The Quit menu item actually does what it says.
+- **Exit code 65** (the tray subcommand's "not compiled in" stub) → server logs once and stops trying — this binary will never have a tray, no point retrying.
+- **Any other non-zero exit** (crash, panic, signal-killed, GPU driver tantrum, etc.) → server respawns the child with bounded backoff: up to 3 retries within 60s, exponential delay (1s, 2s, 4s). After 3 failed retries, server logs loudly (`[tray] giving up after 3 crashes in 60s; run \`outcrop tray reload\` to retry`) and stops trying. The server itself keeps running — the tray is decorative, not load-bearing.
 
 #### Restart policy: exit-code-aware, no flag knob
 
@@ -283,4 +313,5 @@ v1 ships only **Vaults** and **Server**. The other tabs hook in once their respe
 - 2026-04-28 — Reframed the architecture seam (§2). Originally proposed "tray is just another HTTP client of `:7878`"; revised to **dual transports scoped by threat model**: the existing HTTP listener stays narrow (extension-only, leaked-token-is-boring), and a new local-IPC transport (Unix socket / named pipe) carries the privileged surface for the tray. The CLI explicitly stays direct-DB for v1; IPC for the CLI is allowed but only for *new* commands where it genuinely unlocks something (model reuse, liveness probe).
 - 2026-04-28 — Added §4a defining the `url` / `title` shape for desktop captures: synthetic `app://<bundle-id>` URLs (or `app://desktop` fallback) so per-domain history and the LLM router both work on tray captures the same way they work on browser captures. v1 uses the localized app name as the title and skips window-title-via-Accessibility; v2/opt-in extends to window titles where permission is granted.
 - 2026-04-28 — Tightened §6 menu visual encoding: position-above-divider = default, `✓` = last-used (most-recent successful clip across all clients), `(N)` = total clip count, alphabetical body sort with a count-then-alpha fallback once the list grows past ~10–15 entries.
-- 2026-04-28 — Settled tray restart policy in §3: exit-code-aware (clean exit = honor user's Quit; non-zero = respawn with bounded backoff), no new `--tray` flag value. Added `outcrop tray reload` as a runtime IPC command to bring the tray back after a user-quit or after backoff gave up. Explicitly rejected `--tray=once` and "always-respawn-even-on-quit" modes. Move to `draft` after feedback on (a) whether `outcrop serve --tray=auto` is the right default, and (b) whether shelling out to native screen-capture tools is acceptable for v1 versus building the region selector in-process.
+- 2026-04-28 — Settled tray restart policy in §3: exit-code-aware (clean exit = honor user's Quit; non-zero = respawn with bounded backoff), no new `--tray` flag value. Added `outcrop tray reload` as a runtime IPC command to bring the tray back after a user-quit or after backoff gave up. Explicitly rejected `--tray=once` and "always-respawn-even-on-quit" modes.
+- 2026-04-28 — Reframed §3 to honestly capture the CGO/release-pipeline implications of fyne-io/systray. The earlier "same binary, different subcommand keeps the goreleaser story unchanged" claim was wrong — fyne+systray require CGO on every platform that matters, which conflicts with the pure-Go cross-compile config. Resolution: tray code is gated behind a `//go:build tray` build tag (default `outcrop` stays CGO-free; `-tags tray` builds get the tray UI). The release pipeline moves to a per-platform CI matrix (macos-latest + ubuntu-latest, with `ubuntu-24.04-arm` for linux/arm64). Windows is dropped from the release for now — the extension covers most Windows clipping use cases, and adding tray on Windows means a third runner + Windows CGO juggling that's better deferred. Move to `draft` after feedback on (a) whether `outcrop serve --tray=auto` is the right default, and (b) whether shelling out to native screen-capture tools is acceptable for v1 versus building the region selector in-process.
