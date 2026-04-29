@@ -47,6 +47,7 @@ Exploratory / not yet implemented:
 | Embedding-based clip retrieval | `ideation` | [0009](docs/rfd/0009-embedding-based-clip-retrieval.md) |
 | Multi-shot / agentic flows | `ideation` | [0010](docs/rfd/0010-multi-shot-agentic-flows.md) |
 | Config / analytics DB split | `ideation` | [0013](docs/rfd/0013-config-analytics-db-split.md) |
+| Tray applet (menu bar / system tray) | `ideation` | [0014](docs/rfd/0014-tray-applet.md) |
 
 ## Server
 

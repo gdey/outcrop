@@ -6,7 +6,7 @@ created: 2026-04-26
 authors:
   - gdey
 tags: [design, architecture, firefox-extension, obsidian]
-related: [0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013]
+related: [0002, 0003, 0004, 0005, 0006, 0007, 0008, 0009, 0010, 0011, 0012, 0013, 0014]
 superseded-by: ~
 ---
 
