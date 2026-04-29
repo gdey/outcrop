@@ -81,6 +81,11 @@ func (s *Server) ipcMux() http.Handler {
 
 	// Privileged routes — IPC only, never on the network HTTP listener.
 	mux.Handle("GET /server/status", http.HandlerFunc(s.handleServerStatus))
+	mux.Handle("POST /vaults", http.HandlerFunc(s.handleCreateVault))
+	mux.Handle("PUT /vaults/{key}", http.HandlerFunc(s.handleUpdateVault))
+	mux.Handle("DELETE /vaults/{key}", http.HandlerFunc(s.handleDeleteVault))
+	mux.Handle("PUT /vaults/{key}/default", http.HandlerFunc(s.handleSetDefaultVault))
+	mux.Handle("GET /config/token", http.HandlerFunc(s.handleGetToken))
 
 	return chain(
 		recoverMiddleware(s.log),
