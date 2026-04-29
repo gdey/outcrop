@@ -39,6 +39,8 @@ func run(args []string) error {
 		return cli.CmdTrainingData(rest)
 	case "install-service":
 		return cli.CmdInstallService(rest)
+	case "status":
+		return cli.CmdStatus(rest)
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -77,6 +79,8 @@ Usage:
   outcrop install-service [install]    # set up run-on-login (launchd / systemd / Task Scheduler)
   outcrop install-service uninstall
   outcrop install-service status
+
+  outcrop status                       # liveness probe via local IPC socket (RFD 0014)
 
   outcrop config show [--show-token]
   outcrop config path
